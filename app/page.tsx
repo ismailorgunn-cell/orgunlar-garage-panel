@@ -406,44 +406,72 @@ function DataTable({
   headers: string[];
   rows: React.ReactNode[][];
 }) {
-  const minWidth = Math.max(headers.length * 170, 900);
-
   return (
-    <div className="overflow-x-auto rounded-3xl border border-white/10 bg-black/30">
-      <div style={{ minWidth: `${minWidth}px` }}>
-        <div
-          className="grid border-b border-white/10 px-5 py-4 text-[11px] font-bold uppercase tracking-wide text-zinc-400 md:text-xs"
-          style={{ gridTemplateColumns: `repeat(${headers.length}, minmax(140px, 1fr))` }}
-        >
-          {headers.map((header, index) => (
-            <div
-              key={header + index}
-              className="whitespace-nowrap pr-4"
-            >
-              {header}
-            </div>
-          ))}
-        </div>
-
+    <>
+      {/* MOBİL KART GÖRÜNÜMÜ */}
+      <div className="space-y-3 md:hidden">
         {rows.length === 0 ? (
-          <div className="px-5 py-8 text-sm text-zinc-500">Kayıt yok</div>
+          <div className="rounded-3xl border border-white/10 bg-black/30 px-4 py-6 text-sm text-zinc-500">
+            Kayıt yok
+          </div>
         ) : (
           rows.map((row, i) => (
             <div
               key={i}
-              className="grid border-b border-white/5 px-5 py-4 text-sm text-zinc-200 last:border-b-0 hover:bg-white/5"
-              style={{ gridTemplateColumns: `repeat(${headers.length}, minmax(140px, 1fr))` }}
+              className="rounded-3xl border border-white/10 bg-black/30 p-4"
             >
-              {row.map((cell, idx) => (
-                <div key={idx} className="truncate pr-4">
-                  {cell}
-                </div>
-              ))}
+              <div className="space-y-3">
+                {row.map((cell, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-start justify-between gap-3 border-b border-white/5 pb-2 last:border-b-0 last:pb-0"
+                  >
+                    <div className="min-w-[90px] text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+                      {headers[idx]}
+                    </div>
+                    <div className="flex-1 break-words text-right text-sm text-zinc-200">
+                      {cell}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           ))
         )}
       </div>
-    </div>
+
+      {/* DESKTOP TABLO GÖRÜNÜMÜ */}
+      <div className="hidden overflow-x-auto rounded-3xl border border-white/10 bg-black/30 md:block">
+        <div className="min-w-[900px]">
+          <div
+            className="grid border-b border-white/10 px-4 py-3 text-xs font-bold uppercase tracking-wide text-zinc-400"
+            style={{ gridTemplateColumns: `repeat(${headers.length}, minmax(0, 1fr))` }}
+          >
+            {headers.map((header, index) => (
+              <div key={header + index}>{header}</div>
+            ))}
+          </div>
+
+          {rows.length === 0 ? (
+            <div className="px-4 py-8 text-sm text-zinc-500">Kayıt yok</div>
+          ) : (
+            rows.map((row, i) => (
+              <div
+                key={i}
+                className="grid border-b border-white/5 px-4 py-3 text-sm text-zinc-200 last:border-b-0 hover:bg-white/5"
+                style={{ gridTemplateColumns: `repeat(${headers.length}, minmax(0, 1fr))` }}
+              >
+                {row.map((cell, idx) => (
+                  <div key={idx} className="truncate pr-2">
+                    {cell}
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 
