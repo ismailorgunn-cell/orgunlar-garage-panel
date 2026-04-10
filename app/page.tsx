@@ -406,29 +406,36 @@ function DataTable({
   headers: string[];
   rows: React.ReactNode[][];
 }) {
+  const minWidth = Math.max(headers.length * 170, 900);
+
   return (
     <div className="overflow-x-auto rounded-3xl border border-white/10 bg-black/30">
-      <div className="min-w-[900px]">
+      <div style={{ minWidth: `${minWidth}px` }}>
         <div
-          className="grid border-b border-white/10 px-4 py-3 text-xs font-bold uppercase tracking-wide text-zinc-400"
-          style={{ gridTemplateColumns: `repeat(${headers.length}, minmax(0, 1fr))` }}
+          className="grid border-b border-white/10 px-5 py-4 text-[11px] font-bold uppercase tracking-wide text-zinc-400 md:text-xs"
+          style={{ gridTemplateColumns: `repeat(${headers.length}, minmax(140px, 1fr))` }}
         >
           {headers.map((header, index) => (
-            <div key={header + index}>{header}</div>
+            <div
+              key={header + index}
+              className="whitespace-nowrap pr-4"
+            >
+              {header}
+            </div>
           ))}
         </div>
 
         {rows.length === 0 ? (
-          <div className="px-4 py-8 text-sm text-zinc-500">Kayıt yok</div>
+          <div className="px-5 py-8 text-sm text-zinc-500">Kayıt yok</div>
         ) : (
           rows.map((row, i) => (
             <div
               key={i}
-              className="grid border-b border-white/5 px-4 py-3 text-sm text-zinc-200 last:border-b-0 hover:bg-white/5"
-              style={{ gridTemplateColumns: `repeat(${headers.length}, minmax(0, 1fr))` }}
+              className="grid border-b border-white/5 px-5 py-4 text-sm text-zinc-200 last:border-b-0 hover:bg-white/5"
+              style={{ gridTemplateColumns: `repeat(${headers.length}, minmax(140px, 1fr))` }}
             >
               {row.map((cell, idx) => (
-                <div key={idx} className="truncate pr-2">
+                <div key={idx} className="truncate pr-4">
                   {cell}
                 </div>
               ))}
