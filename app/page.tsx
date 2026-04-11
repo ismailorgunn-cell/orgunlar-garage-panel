@@ -3,14 +3,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import jsPDF from "jspdf";
+import * as XLSX from "xlsx";
 import { supabase } from "../lib/supabase";
 import {
-  AlertTriangle,
   BadgeDollarSign,
   BarChart3,
   Building2,
   Car,
   ClipboardCheck,
+  Download,
   FileText,
   Lock,
   LogOut,
@@ -37,6 +38,7 @@ type MechanicRecord = {
   partCost: number;
   labor: number;
   total: number;
+  createdBy: string;
 };
 
 type ExpertiseRecord = {
@@ -47,6 +49,7 @@ type ExpertiseRecord = {
   packageType: string;
   fee: number;
   payment: string;
+  createdBy: string;
 };
 
 type ExpenseRecord = {
@@ -55,6 +58,7 @@ type ExpenseRecord = {
   type: string;
   note: string;
   amount: number;
+  createdBy: string;
 };
 
 type Supplier = {
@@ -62,6 +66,7 @@ type Supplier = {
   name: string;
   phone: string;
   note: string;
+  createdBy: string;
 };
 
 type PartRecord = {
@@ -73,6 +78,7 @@ type PartRecord = {
   cost: number;
   supplierId: number;
   paid: boolean;
+  createdBy: string;
 };
 
 type EmployeePaymentRecord = {
@@ -81,6 +87,7 @@ type EmployeePaymentRecord = {
   employeeName: string;
   note: string;
   amount: number;
+  createdBy: string;
 };
 
 type OrderJob = {
@@ -118,6 +125,7 @@ type WorkOrderRecord = {
   laborTotal: number;
   jobs: OrderJob[];
   grandTotal: number;
+  createdBy: string;
   createdAt?: string;
 };
 
@@ -192,6 +200,24 @@ function toDDMMYYYY(date: Date) {
   return `${d}.${m}.${y}`;
 }
 
+function toISODate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizeDateForInput(value: string) {
+  if (!value) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const parsed = parseDate(value);
+  return parsed ? toISODate(parsed) : "";
+}
+
+function formatDateForDisplay(value: string) {
+  if (!value) return "-";
+  if (/^\d{2}\.\d{2}\.\d{4}$/.test(value)) return value;
+  const parsed = parseDate(value);
+  return parsed ? toDDMMYYYY(parsed) : value;
+}
+
 function inRange(dateValue: string, start: string, end: string) {
   if (!start && !end) return true;
 
@@ -222,15 +248,43 @@ function isSameMonth(dateValue: string, date: Date) {
   );
 }
 
-function isWithinLastNDays(dateValue: string, days: number, today: Date) {
+function getCurrentWeekMondaySaturday(today = new Date()) {
+  const current = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const day = current.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const monday = new Date(current);
+  monday.setDate(current.getDate() + mondayOffset);
+
+  const saturday = new Date(monday);
+  saturday.setDate(monday.getDate() + 5);
+
+  return { monday, saturday };
+}
+
+function isWithinCurrentWorkWeek(dateValue: string, today = new Date()) {
   const parsed = parseDate(dateValue);
   if (!parsed) return false;
 
-  const current = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const { monday, saturday } = getCurrentWeekMondaySaturday(today);
   const target = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).getTime();
-  const diffDays = Math.floor((current - target) / (1000 * 60 * 60 * 24));
+  const start = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate()).getTime();
+  const end = new Date(saturday.getFullYear(), saturday.getMonth(), saturday.getDate()).getTime();
 
-  return diffDays >= 0 && diffDays < days;
+  return target >= start && target <= end;
+}
+
+function getWeekDayLabels(today = new Date()) {
+  const { monday } = getCurrentWeekMondaySaturday(today);
+  const labels = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
+
+  return labels.map((label, index) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + index);
+    return {
+      label,
+      date: toDDMMYYYY(d),
+    };
+  });
 }
 
 function pdfSafe(text: string) {
@@ -328,10 +382,11 @@ function SmallDateInput({
 }) {
   return (
     <input
-      value={value}
+      type="date"
+      value={normalizeDateForInput(value)}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="h-12 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-red-500 md:h-11 md:w-[145px]"
+      className="h-12 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition focus:border-red-500 md:h-11 md:w-[170px]"
     />
   );
 }
@@ -383,7 +438,7 @@ function StatCard({
 }) {
   return (
     <motion.div whileHover={{ y: -4 }} transition={{ duration: 0.18 }}>
-      <div className="rounded-3xl border border-red-500/20 bg-gradient-to-br from-zinc-950 to-red-950 p-5 shadow-2xl">
+      <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-zinc-950 via-zinc-900 to-red-950 p-5 shadow-2xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-sm text-zinc-400">{title}</div>
@@ -408,7 +463,6 @@ function DataTable({
 }) {
   return (
     <>
-      {/* MOBİL KART GÖRÜNÜMÜ */}
       <div className="space-y-3 md:hidden">
         {rows.length === 0 ? (
           <div className="rounded-3xl border border-white/10 bg-black/30 px-4 py-6 text-sm text-zinc-500">
@@ -426,7 +480,7 @@ function DataTable({
                     key={idx}
                     className="flex items-start justify-between gap-3 border-b border-white/5 pb-2 last:border-b-0 last:pb-0"
                   >
-                    <div className="min-w-[90px] text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+                    <div className="min-w-[95px] text-[11px] font-bold uppercase tracking-wide text-zinc-400">
                       {headers[idx]}
                     </div>
                     <div className="flex-1 break-words text-right text-sm text-zinc-200">
@@ -440,9 +494,8 @@ function DataTable({
         )}
       </div>
 
-      {/* DESKTOP TABLO GÖRÜNÜMÜ */}
       <div className="hidden overflow-x-auto rounded-3xl border border-white/10 bg-black/30 md:block">
-        <div className="min-w-[900px]">
+        <div className="min-w-[980px]">
           <div
             className="grid border-b border-white/10 px-4 py-3 text-xs font-bold uppercase tracking-wide text-zinc-400"
             style={{ gridTemplateColumns: `repeat(${headers.length}, minmax(0, 1fr))` }}
@@ -478,11 +531,9 @@ function DataTable({
 function FilterBar({
   filter,
   setFilter,
-  onReport,
 }: {
   filter: { start: string; end: string };
   setFilter: React.Dispatch<React.SetStateAction<{ start: string; end: string }>>;
-  onReport: () => void;
 }) {
   return (
     <div className="grid w-full grid-cols-1 gap-2 md:flex md:w-auto md:flex-wrap md:items-center">
@@ -502,12 +553,6 @@ function FilterBar({
       >
         Temizle
       </button>
-      <button
-        onClick={onReport}
-        className="h-12 rounded-xl bg-red-600 px-4 font-medium text-white transition hover:bg-red-500 md:h-11"
-      >
-        Rapor al
-      </button>
     </div>
   );
 }
@@ -520,11 +565,11 @@ function MiniBarChart({
   const maxValue = Math.max(1, ...data.flatMap((item) => [item.income, item.expense]));
 
   return (
-    <div className="rounded-3xl border border-white/10 bg-black/30 p-4">
+    <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <div className="text-lg font-bold text-white">Son 7 Gün Grafik</div>
-          <div className="text-sm text-zinc-400">Gelir / gider hareketi</div>
+          <div className="text-lg font-bold text-white">Haftalık Grafik</div>
+          <div className="text-sm text-zinc-400">Pazartesi - Cumartesi</div>
         </div>
         <div className="flex gap-4 text-xs">
           <div className="flex items-center gap-2 text-zinc-300">
@@ -538,7 +583,7 @@ function MiniBarChart({
         </div>
       </div>
 
-      <div className="grid h-64 grid-cols-7 items-end gap-3">
+      <div className="grid h-64 grid-cols-6 items-end gap-3">
         {data.map((item) => {
           const incomeHeight = Math.max(8, (item.income / maxValue) * 180);
           const expenseHeight = Math.max(8, (item.expense / maxValue) * 180);
@@ -575,7 +620,7 @@ export default function Page() {
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
 
   const [mechanicForm, setMechanicForm] = useState({
-    date: "",
+    date: toISODate(new Date()),
     car: "",
     plate: "",
     service: "",
@@ -586,7 +631,7 @@ export default function Page() {
   const [editingMechanicId, setEditingMechanicId] = useState<number | null>(null);
 
   const [expertiseForm, setExpertiseForm] = useState({
-    date: "",
+    date: toISODate(new Date()),
     car: "",
     plate: "",
     packageType: "",
@@ -596,7 +641,7 @@ export default function Page() {
   const [editingExpertiseId, setEditingExpertiseId] = useState<number | null>(null);
 
   const [expenseForm, setExpenseForm] = useState({
-    date: "",
+    date: toISODate(new Date()),
     type: "",
     note: "",
     amount: "",
@@ -611,18 +656,18 @@ export default function Page() {
   const [editingSupplierId, setEditingSupplierId] = useState<number | null>(null);
 
   const [partForm, setPartForm] = useState({
-    date: "",
+    date: toISODate(new Date()),
     part: "",
     car: "",
     plate: "",
     cost: "",
     supplierId: "",
-    paid: "Hayır",
+    paid: "Ödenmedi",
   });
   const [editingPartId, setEditingPartId] = useState<number | null>(null);
 
   const [employeeForm, setEmployeeForm] = useState({
-    date: "",
+    date: toISODate(new Date()),
     employeeName: "",
     note: "",
     amount: "",
@@ -636,7 +681,7 @@ export default function Page() {
   const [orderForm, setOrderForm] = useState<OrderForm>({
     customer: "",
     phone: "",
-    date: "",
+    date: toISODate(new Date()),
     address: "",
     car: "",
     plate: "",
@@ -646,6 +691,7 @@ export default function Page() {
     laborTotal: "",
     jobs: [{ id: uid(), item: "", qty: "", price: "" }],
   });
+
   const [editingWorkOrderId, setEditingWorkOrderId] = useState<number | null>(null);
   const [workOrderFilter, setWorkOrderFilter] = useState({ start: "", end: "" });
 
@@ -694,6 +740,7 @@ export default function Page() {
         partCost: Number(item.part_cost || 0),
         labor: Number(item.labor || 0),
         total: Number(item.total || 0),
+        createdBy: item.created_by || "-",
       })),
       expertise: (expertiseRes.data || []).map((item) => ({
         id: Number(item.id),
@@ -703,6 +750,7 @@ export default function Page() {
         packageType: item.package_type || "",
         fee: Number(item.fee || 0),
         payment: item.payment || "Nakit",
+        createdBy: item.created_by || "-",
       })),
       expenses: (expensesRes.data || []).map((item) => ({
         id: Number(item.id),
@@ -710,12 +758,14 @@ export default function Page() {
         type: item.type || "",
         note: item.note || "",
         amount: Number(item.amount || 0),
+        createdBy: item.created_by || "-",
       })),
       suppliers: (suppliersRes.data || []).map((item) => ({
         id: Number(item.id),
         name: item.name || "",
         phone: item.phone || "",
         note: item.note || "",
+        createdBy: item.created_by || "-",
       })),
       parts: (partsRes.data || []).map((item) => ({
         id: Number(item.id),
@@ -726,6 +776,7 @@ export default function Page() {
         cost: Number(item.cost || 0),
         supplierId: Number(item.supplier_id || 0),
         paid: Boolean(item.paid),
+        createdBy: item.created_by || "-",
       })),
       employeePayments: (employeeRes.data || []).map((item) => ({
         id: Number(item.id),
@@ -733,6 +784,7 @@ export default function Page() {
         employeeName: item.employee_name || "",
         note: item.note || "",
         amount: Number(item.amount || 0),
+        createdBy: item.created_by || "-",
       })),
       workOrders: (workOrdersRes.data || []).map((item) => ({
         id: Number(item.id),
@@ -755,6 +807,7 @@ export default function Page() {
             }))
           : [],
         grandTotal: Number(item.grand_total || 0),
+        createdBy: item.created_by || "-",
         createdAt: item.created_at || "",
       })),
       settings: {
@@ -867,15 +920,9 @@ export default function Page() {
   const totalDebt = (data.parts ?? [])
     .filter((item) => !item.paid)
     .reduce((sum, item) => sum + Number(item.cost || 0), 0);
-  const totalWorkOrdersAmount = (data.workOrders ?? []).reduce(
-    (sum, item) => sum + Number(item.grandTotal || 0),
-    0
-  );
-
   const totalIncome = totalMechanic + totalExpertise;
   const net = totalIncome - totalExpenses - totalDebt;
   const afterRent = net - Number(data.settings.baseRent || 0);
-  const status = afterRent > 0 ? "İYİ" : afterRent === 0 ? "ORTA" : "KÖTÜ";
 
   const normalizedVehiclePlate = vehicleSearchPlate.trim().toLowerCase();
 
@@ -920,38 +967,20 @@ export default function Page() {
   }, [data.workOrders, normalizedVehiclePlate, vehicleReportStart, vehicleReportEnd]);
 
   const todayDate = new Date();
-  const todayStr = toDDMMYYYY(todayDate);
+  const weekLabels = getWeekDayLabels(todayDate);
 
-  const todayIncome =
-    (data.mechanic ?? [])
-      .filter((x) => x.date === todayStr)
-      .reduce((sum, x) => sum + Number(x.total || 0), 0) +
+  const weekIncome = (data.mechanic ?? [])
+    .filter((x) => isWithinCurrentWorkWeek(x.date, todayDate))
+    .reduce((sum, x) => sum + Number(x.total || 0), 0) +
     (data.expertise ?? [])
-      .filter((x) => x.date === todayStr)
+      .filter((x) => isWithinCurrentWorkWeek(x.date, todayDate))
       .reduce((sum, x) => sum + Number(x.fee || 0), 0);
 
-  const todayExpense =
-    (data.expenses ?? [])
-      .filter((x) => x.date === todayStr)
-      .reduce((sum, x) => sum + Number(x.amount || 0), 0) +
+  const weekExpense = (data.expenses ?? [])
+    .filter((x) => isWithinCurrentWorkWeek(x.date, todayDate))
+    .reduce((sum, x) => sum + Number(x.amount || 0), 0) +
     (data.employeePayments ?? [])
-      .filter((x) => x.date === todayStr)
-      .reduce((sum, x) => sum + Number(x.amount || 0), 0);
-
-  const weekIncome =
-    (data.mechanic ?? [])
-      .filter((x) => isWithinLastNDays(x.date, 7, todayDate))
-      .reduce((sum, x) => sum + Number(x.total || 0), 0) +
-    (data.expertise ?? [])
-      .filter((x) => isWithinLastNDays(x.date, 7, todayDate))
-      .reduce((sum, x) => sum + Number(x.fee || 0), 0);
-
-  const weekExpense =
-    (data.expenses ?? [])
-      .filter((x) => isWithinLastNDays(x.date, 7, todayDate))
-      .reduce((sum, x) => sum + Number(x.amount || 0), 0) +
-    (data.employeePayments ?? [])
-      .filter((x) => isWithinLastNDays(x.date, 7, todayDate))
+      .filter((x) => isWithinCurrentWorkWeek(x.date, todayDate))
       .reduce((sum, x) => sum + Number(x.amount || 0), 0);
 
   const monthIncome =
@@ -971,54 +1000,144 @@ export default function Page() {
       .reduce((sum, x) => sum + Number(x.amount || 0), 0);
 
   const monthNet = monthIncome - monthExpense;
-  const unpaidParts = (data.parts ?? []).filter((x) => !x.paid);
 
-  const topExpenseTypes = useMemo(() => {
-    const map = new Map<string, number>();
-
-    (data.expenses ?? []).forEach((item) => {
-      const key = item.type || "Diğer";
-      map.set(key, (map.get(key) || 0) + Number(item.amount || 0));
-    });
-
-    return Array.from(map.entries())
-      .map(([type, amount]) => ({ type, amount }))
-      .sort((a, b) => b.amount - a.amount)
-      .slice(0, 5);
-  }, [data.expenses]);
-
-  const recentWorkOrders = useMemo(() => {
-    return [...(data.workOrders ?? [])].slice(0, 5);
-  }, [data.workOrders]);
-
-  const sevenDayChartData = useMemo(() => {
-    return Array.from({ length: 7 }).map((_, index) => {
-      const d = new Date(todayDate);
-      d.setDate(todayDate.getDate() - (6 - index));
-      const label = `${String(d.getDate()).padStart(2, "0")}/${String(
-        d.getMonth() + 1
-      ).padStart(2, "0")}`;
-      const dateKey = toDDMMYYYY(d);
-
+  const weeklyChartData = useMemo(() => {
+    return weekLabels.map((item) => {
       const income =
         (data.mechanic ?? [])
-          .filter((x) => x.date === dateKey)
+          .filter((x) => formatDateForDisplay(x.date) === item.date)
           .reduce((sum, x) => sum + Number(x.total || 0), 0) +
         (data.expertise ?? [])
-          .filter((x) => x.date === dateKey)
+          .filter((x) => formatDateForDisplay(x.date) === item.date)
           .reduce((sum, x) => sum + Number(x.fee || 0), 0);
 
       const expense =
         (data.expenses ?? [])
-          .filter((x) => x.date === dateKey)
+          .filter((x) => formatDateForDisplay(x.date) === item.date)
           .reduce((sum, x) => sum + Number(x.amount || 0), 0) +
         (data.employeePayments ?? [])
-          .filter((x) => x.date === dateKey)
+          .filter((x) => formatDateForDisplay(x.date) === item.date)
           .reduce((sum, x) => sum + Number(x.amount || 0), 0);
 
-      return { label, income, expense };
+      return {
+        label: item.label,
+        income,
+        expense,
+      };
     });
-  }, [data.mechanic, data.expertise, data.expenses, data.employeePayments]);
+  }, [data.mechanic, data.expertise, data.expenses, data.employeePayments, weekLabels]);
+
+  const exportMonthlyExcel = () => {
+    const monthMechanic = data.mechanic.filter((x) => isSameMonth(x.date, todayDate));
+    const monthExpertise = data.expertise.filter((x) => isSameMonth(x.date, todayDate));
+    const monthExpenses = data.expenses.filter((x) => isSameMonth(x.date, todayDate));
+    const monthParts = data.parts.filter((x) => isSameMonth(x.date, todayDate));
+    const monthEmployees = data.employeePayments.filter((x) => isSameMonth(x.date, todayDate));
+    const monthOrders = data.workOrders.filter((x) => isSameMonth(x.date, todayDate));
+
+    const wb = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(
+        monthMechanic.map((x) => ({
+          Tarih: formatDateForDisplay(x.date),
+          Arac: x.car,
+          Plaka: x.plate,
+          Islem: x.service,
+          ParcaMaliyeti: x.partCost,
+          Iscilik: x.labor,
+          Toplam: x.total,
+          Ekleyen: x.createdBy,
+        }))
+      ),
+      "Mekanik"
+    );
+
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(
+        monthExpertise.map((x) => ({
+          Tarih: formatDateForDisplay(x.date),
+          Arac: x.car,
+          Plaka: x.plate,
+          Paket: x.packageType,
+          Ucret: x.fee,
+          Odeme: x.payment,
+          Ekleyen: x.createdBy,
+        }))
+      ),
+      "Ekspertiz"
+    );
+
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(
+        monthExpenses.map((x) => ({
+          Tarih: formatDateForDisplay(x.date),
+          Tur: x.type,
+          Aciklama: x.note,
+          Tutar: x.amount,
+          Ekleyen: x.createdBy,
+        }))
+      ),
+      "Gider"
+    );
+
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(
+        monthParts.map((x) => ({
+          Tarih: formatDateForDisplay(x.date),
+          Parca: x.part,
+          Arac: x.car,
+          Plaka: x.plate,
+          Parcaci: supplierNameById(x.supplierId),
+          Tutar: x.cost,
+          Durum: x.paid ? "Ödendi" : "Ödenmedi",
+          Ekleyen: x.createdBy,
+        }))
+      ),
+      "Parca"
+    );
+
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(
+        monthEmployees.map((x) => ({
+          Tarih: formatDateForDisplay(x.date),
+          Eleman: x.employeeName,
+          Aciklama: x.note,
+          Tutar: x.amount,
+          Ekleyen: x.createdBy,
+        }))
+      ),
+      "Eleman"
+    );
+
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(
+        monthOrders.map((x) => ({
+          Tarih: formatDateForDisplay(x.date),
+          Musteri: x.customer,
+          Telefon: x.phone,
+          Arac: x.car,
+          Plaka: x.plate,
+          Toplam: x.grandTotal,
+          Ekleyen: x.createdBy,
+        }))
+      ),
+      "IsEmri"
+    );
+
+    XLSX.writeFile(
+      wb,
+      `orgunlar-finans-panel-${todayDate.getFullYear()}-${String(
+        todayDate.getMonth() + 1
+      ).padStart(2, "0")}.xlsx`
+    );
+  };
 
   const handleLogin = () => {
     const user = Object.values(USERS).find(
@@ -1057,7 +1176,7 @@ export default function Page() {
 
   const resetMechanicForm = () => {
     setMechanicForm({
-      date: "",
+      date: toISODate(new Date()),
       car: "",
       plate: "",
       service: "",
@@ -1070,7 +1189,7 @@ export default function Page() {
 
   const resetExpertiseForm = () => {
     setExpertiseForm({
-      date: "",
+      date: toISODate(new Date()),
       car: "",
       plate: "",
       packageType: "",
@@ -1082,7 +1201,7 @@ export default function Page() {
 
   const resetExpenseForm = () => {
     setExpenseForm({
-      date: "",
+      date: toISODate(new Date()),
       type: "",
       note: "",
       amount: "",
@@ -1101,20 +1220,20 @@ export default function Page() {
 
   const resetPartForm = () => {
     setPartForm({
-      date: "",
+      date: toISODate(new Date()),
       part: "",
       car: "",
       plate: "",
       cost: "",
       supplierId: "",
-      paid: "Hayır",
+      paid: "Ödenmedi",
     });
     setEditingPartId(null);
   };
 
   const resetEmployeeForm = () => {
     setEmployeeForm({
-      date: "",
+      date: toISODate(new Date()),
       employeeName: "",
       note: "",
       amount: "",
@@ -1126,7 +1245,7 @@ export default function Page() {
     setOrderForm({
       customer: "",
       phone: "",
-      date: "",
+      date: toISODate(new Date()),
       address: "",
       car: "",
       plate: "",
@@ -1140,7 +1259,7 @@ export default function Page() {
   };
 
   const addMechanic = async () => {
-    if (!canStaffAddVehicleRecords) return;
+    if (!canStaffAddVehicleRecords || !session) return;
     if (!mechanicForm.date || !mechanicForm.car || !mechanicForm.total) {
       alert("Tarih, araç ve toplam boş olamaz");
       return;
@@ -1154,24 +1273,15 @@ export default function Page() {
       part_cost: Number(mechanicForm.partCost || 0),
       labor: Number(mechanicForm.labor || 0),
       total: Number(mechanicForm.total || 0),
+      created_by: session.username,
     };
 
     if (editingMechanicId) {
-      const { error } = await supabase
-        .from("mechanic_records")
-        .update(payload)
-        .eq("id", editingMechanicId);
-
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      const { error } = await supabase.from("mechanic_records").update(payload).eq("id", editingMechanicId);
+      if (error) return alert(error.message);
     } else {
       const { error } = await supabase.from("mechanic_records").insert([payload]);
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      if (error) return alert(error.message);
     }
 
     resetMechanicForm();
@@ -1179,15 +1289,12 @@ export default function Page() {
   };
 
   const editMechanic = (id: number) => {
-    if (!isAdmin) {
-      alert("Düzenleme yetkisi sadece admin için açık");
-      return;
-    }
+    if (!isAdmin) return alert("Düzenleme yetkisi sadece admin için açık");
     const item = data.mechanic.find((x) => x.id === id);
     if (!item) return;
     setEditingMechanicId(id);
     setMechanicForm({
-      date: item.date,
+      date: normalizeDateForInput(item.date),
       car: item.car,
       plate: item.plate,
       service: item.service,
@@ -1198,23 +1305,15 @@ export default function Page() {
   };
 
   const deleteMechanic = async (id: number) => {
-    if (!isAdmin) {
-      alert("Silme yetkisi sadece admin için açık");
-      return;
-    }
-
+    if (!isAdmin) return alert("Silme yetkisi sadece admin için açık");
     const { error } = await supabase.from("mechanic_records").delete().eq("id", id);
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
+    if (error) return alert(error.message);
     if (editingMechanicId === id) resetMechanicForm();
     loadAllData();
   };
 
   const addExpertise = async () => {
-    if (!canStaffAddVehicleRecords) return;
+    if (!canStaffAddVehicleRecords || !session) return;
     if (!expertiseForm.date || !expertiseForm.car || !expertiseForm.fee) {
       alert("Tarih, araç ve ücret boş olamaz");
       return;
@@ -1227,24 +1326,15 @@ export default function Page() {
       package_type: expertiseForm.packageType,
       fee: Number(expertiseForm.fee || 0),
       payment: expertiseForm.payment,
+      created_by: session.username,
     };
 
     if (editingExpertiseId) {
-      const { error } = await supabase
-        .from("expertise_records")
-        .update(payload)
-        .eq("id", editingExpertiseId);
-
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      const { error } = await supabase.from("expertise_records").update(payload).eq("id", editingExpertiseId);
+      if (error) return alert(error.message);
     } else {
       const { error } = await supabase.from("expertise_records").insert([payload]);
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      if (error) return alert(error.message);
     }
 
     resetExpertiseForm();
@@ -1252,15 +1342,12 @@ export default function Page() {
   };
 
   const editExpertise = (id: number) => {
-    if (!isAdmin) {
-      alert("Düzenleme yetkisi sadece admin için açık");
-      return;
-    }
+    if (!isAdmin) return alert("Düzenleme yetkisi sadece admin için açık");
     const item = data.expertise.find((x) => x.id === id);
     if (!item) return;
     setEditingExpertiseId(id);
     setExpertiseForm({
-      date: item.date,
+      date: normalizeDateForInput(item.date),
       car: item.car,
       plate: item.plate,
       packageType: item.packageType,
@@ -1270,27 +1357,15 @@ export default function Page() {
   };
 
   const deleteExpertise = async (id: number) => {
-    if (!isAdmin) {
-      alert("Silme yetkisi sadece admin için açık");
-      return;
-    }
-
+    if (!isAdmin) return alert("Silme yetkisi sadece admin için açık");
     const { error } = await supabase.from("expertise_records").delete().eq("id", id);
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
+    if (error) return alert(error.message);
     if (editingExpertiseId === id) resetExpertiseForm();
     loadAllData();
   };
 
   const addExpense = async () => {
-    if (!canAddSharedRecords) {
-      alert("Bu işlem için yetki yok");
-      return;
-    }
-
+    if (!canAddSharedRecords || !session) return;
     if (!expenseForm.date || !expenseForm.type || !expenseForm.amount) {
       alert("Tarih, tür ve tutar boş olamaz");
       return;
@@ -1301,24 +1376,15 @@ export default function Page() {
       type: expenseForm.type,
       note: expenseForm.note || "",
       amount: Number(expenseForm.amount),
+      created_by: session.username,
     };
 
     if (editingExpenseId) {
-      const { error } = await supabase
-        .from("expenses")
-        .update(payload)
-        .eq("id", editingExpenseId);
-
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      const { error } = await supabase.from("expenses").update(payload).eq("id", editingExpenseId);
+      if (error) return alert(error.message);
     } else {
       const { error } = await supabase.from("expenses").insert([payload]);
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      if (error) return alert(error.message);
     }
 
     resetExpenseForm();
@@ -1326,15 +1392,12 @@ export default function Page() {
   };
 
   const editExpense = (id: number) => {
-    if (!isAdmin) {
-      alert("Düzenleme yetkisi sadece admin için açık");
-      return;
-    }
+    if (!isAdmin) return alert("Düzenleme yetkisi sadece admin için açık");
     const item = data.expenses.find((x) => x.id === id);
     if (!item) return;
     setEditingExpenseId(id);
     setExpenseForm({
-      date: item.date,
+      date: normalizeDateForInput(item.date),
       type: item.type,
       note: item.note,
       amount: String(item.amount),
@@ -1342,53 +1405,30 @@ export default function Page() {
   };
 
   const deleteExpense = async (id: number) => {
-    if (!isAdmin) {
-      alert("Silme yetkisi sadece admin için açık");
-      return;
-    }
-
+    if (!isAdmin) return alert("Silme yetkisi sadece admin için açık");
     const { error } = await supabase.from("expenses").delete().eq("id", id);
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
+    if (error) return alert(error.message);
     if (editingExpenseId === id) resetExpenseForm();
     loadAllData();
   };
 
   const addSupplier = async () => {
-    if (!canAddSharedRecords) {
-      alert("Bu işlem için yetki yok");
-      return;
-    }
-    if (!supplierForm.name) {
-      alert("Parçacı adı boş olamaz");
-      return;
-    }
+    if (!canAddSharedRecords || !session) return;
+    if (!supplierForm.name) return alert("Parçacı adı boş olamaz");
 
     const payload = {
       name: supplierForm.name,
       phone: supplierForm.phone,
       note: supplierForm.note,
+      created_by: session.username,
     };
 
     if (editingSupplierId) {
-      const { error } = await supabase
-        .from("suppliers")
-        .update(payload)
-        .eq("id", editingSupplierId);
-
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      const { error } = await supabase.from("suppliers").update(payload).eq("id", editingSupplierId);
+      if (error) return alert(error.message);
     } else {
       const { error } = await supabase.from("suppliers").insert([payload]);
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      if (error) return alert(error.message);
     }
 
     resetSupplierForm();
@@ -1396,10 +1436,7 @@ export default function Page() {
   };
 
   const editSupplier = (id: number) => {
-    if (!isAdmin) {
-      alert("Düzenleme yetkisi sadece admin için açık");
-      return;
-    }
+    if (!isAdmin) return alert("Düzenleme yetkisi sadece admin için açık");
     const item = data.suppliers.find((x) => x.id === id);
     if (!item) return;
     setEditingSupplierId(id);
@@ -1411,29 +1448,17 @@ export default function Page() {
   };
 
   const deleteSupplier = async (id: number) => {
-    if (!isAdmin) {
-      alert("Silme yetkisi sadece admin için açık");
-      return;
-    }
-
+    if (!isAdmin) return alert("Silme yetkisi sadece admin için açık");
     const isUsed = data.parts.some((item) => item.supplierId === id);
-    if (isUsed) {
-      alert("Bu parçacı parça kayıtlarında kullanılıyor.");
-      return;
-    }
-
+    if (isUsed) return alert("Bu parçacı parça kayıtlarında kullanılıyor.");
     const { error } = await supabase.from("suppliers").delete().eq("id", id);
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
+    if (error) return alert(error.message);
     if (editingSupplierId === id) resetSupplierForm();
     loadAllData();
   };
 
   const addPart = async () => {
-    if (!canStaffAddVehicleRecords) return;
+    if (!canStaffAddVehicleRecords || !session) return;
     if (!partForm.date || !partForm.part || !partForm.cost || !partForm.supplierId) {
       alert("Tarih, parça, tutar ve parçacı boş olamaz");
       return;
@@ -1446,21 +1471,16 @@ export default function Page() {
       plate: partForm.plate,
       cost: Number(partForm.cost || 0),
       supplier_id: Number(partForm.supplierId),
-      paid: partForm.paid === "Evet",
+      paid: partForm.paid === "Ödendi",
+      created_by: session.username,
     };
 
     if (editingPartId) {
       const { error } = await supabase.from("parts").update(payload).eq("id", editingPartId);
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      if (error) return alert(error.message);
     } else {
       const { error } = await supabase.from("parts").insert([payload]);
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      if (error) return alert(error.message);
     }
 
     resetPartForm();
@@ -1468,45 +1488,31 @@ export default function Page() {
   };
 
   const editPart = (id: number) => {
-    if (!isAdmin) {
-      alert("Düzenleme yetkisi sadece admin için açık");
-      return;
-    }
+    if (!isAdmin) return alert("Düzenleme yetkisi sadece admin için açık");
     const item = data.parts.find((x) => x.id === id);
     if (!item) return;
     setEditingPartId(id);
     setPartForm({
-      date: item.date,
+      date: normalizeDateForInput(item.date),
       part: item.part,
       car: item.car,
       plate: item.plate,
       cost: String(item.cost),
       supplierId: String(item.supplierId),
-      paid: item.paid ? "Evet" : "Hayır",
+      paid: item.paid ? "Ödendi" : "Ödenmedi",
     });
   };
 
   const deletePart = async (id: number) => {
-    if (!isAdmin) {
-      alert("Silme yetkisi sadece admin için açık");
-      return;
-    }
-
+    if (!isAdmin) return alert("Silme yetkisi sadece admin için açık");
     const { error } = await supabase.from("parts").delete().eq("id", id);
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
+    if (error) return alert(error.message);
     if (editingPartId === id) resetPartForm();
     loadAllData();
   };
 
   const addEmployeePayment = async () => {
-    if (!canAddSharedRecords) {
-      alert("Bu işlem için yetki yok");
-      return;
-    }
+    if (!canAddSharedRecords || !session) return;
     if (!employeeForm.date || !employeeForm.employeeName || !employeeForm.amount) {
       alert("Tarih, eleman adı ve tutar boş olamaz");
       return;
@@ -1517,24 +1523,15 @@ export default function Page() {
       employee_name: employeeForm.employeeName,
       note: employeeForm.note,
       amount: Number(employeeForm.amount || 0),
+      created_by: session.username,
     };
 
     if (editingEmployeeId) {
-      const { error } = await supabase
-        .from("employee_payments")
-        .update(payload)
-        .eq("id", editingEmployeeId);
-
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      const { error } = await supabase.from("employee_payments").update(payload).eq("id", editingEmployeeId);
+      if (error) return alert(error.message);
     } else {
       const { error } = await supabase.from("employee_payments").insert([payload]);
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      if (error) return alert(error.message);
     }
 
     resetEmployeeForm();
@@ -1542,15 +1539,12 @@ export default function Page() {
   };
 
   const editEmployeePayment = (id: number) => {
-    if (!isAdmin) {
-      alert("Düzenleme yetkisi sadece admin için açık");
-      return;
-    }
+    if (!isAdmin) return alert("Düzenleme yetkisi sadece admin için açık");
     const item = data.employeePayments.find((x) => x.id === id);
     if (!item) return;
     setEditingEmployeeId(id);
     setEmployeeForm({
-      date: item.date,
+      date: normalizeDateForInput(item.date),
       employeeName: item.employeeName,
       note: item.note,
       amount: String(item.amount),
@@ -1558,27 +1552,15 @@ export default function Page() {
   };
 
   const deleteEmployeePayment = async (id: number) => {
-    if (!isAdmin) {
-      alert("Silme yetkisi sadece admin için açık");
-      return;
-    }
-
+    if (!isAdmin) return alert("Silme yetkisi sadece admin için açık");
     const { error } = await supabase.from("employee_payments").delete().eq("id", id);
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
+    if (error) return alert(error.message);
     if (editingEmployeeId === id) resetEmployeeForm();
     loadAllData();
   };
 
   const saveWorkOrder = async () => {
-    if (!canAddSharedRecords) {
-      alert("Bu işlem için yetki yok");
-      return;
-    }
-
+    if (!canAddSharedRecords || !session) return;
     if (!orderForm.customer || !orderForm.date || !orderForm.car || !orderForm.plate) {
       alert("Müşteri, tarih, araç ve plaka boş olamaz");
       return;
@@ -1608,25 +1590,15 @@ export default function Page() {
       grand_total:
         cleanedJobs.reduce((sum, item) => sum + Number(item.price || 0), 0) +
         Number(orderForm.laborTotal || 0),
+      created_by: session.username,
     };
 
     if (editingWorkOrderId) {
-      const { error } = await supabase
-        .from("work_orders")
-        .update(payload)
-        .eq("id", editingWorkOrderId);
-
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      const { error } = await supabase.from("work_orders").update(payload).eq("id", editingWorkOrderId);
+      if (error) return alert(error.message);
     } else {
       const { error } = await supabase.from("work_orders").insert([payload]);
-
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      if (error) return alert(error.message);
     }
 
     resetOrderForm();
@@ -1635,11 +1607,7 @@ export default function Page() {
   };
 
   const editWorkOrder = (id: number) => {
-    if (!isAdmin) {
-      alert("Düzenleme yetkisi sadece admin için açık");
-      return;
-    }
-
+    if (!isAdmin) return alert("Düzenleme yetkisi sadece admin için açık");
     const item = data.workOrders.find((x) => x.id === id);
     if (!item) return;
 
@@ -1647,7 +1615,7 @@ export default function Page() {
     setOrderForm({
       customer: item.customer,
       phone: item.phone,
-      date: item.date,
+      date: normalizeDateForInput(item.date),
       address: item.address,
       car: item.car,
       plate: item.plate,
@@ -1670,17 +1638,9 @@ export default function Page() {
   };
 
   const deleteWorkOrder = async (id: number) => {
-    if (!isAdmin) {
-      alert("Silme yetkisi sadece admin için açık");
-      return;
-    }
-
+    if (!isAdmin) return alert("Silme yetkisi sadece admin için açık");
     const { error } = await supabase.from("work_orders").delete().eq("id", id);
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
+    if (error) return alert(error.message);
     if (editingWorkOrderId === id) resetOrderForm();
     loadAllData();
   };
@@ -1737,13 +1697,9 @@ Toplam Odeme: ${formatTRY(total)}`
 
   const buildVehicleReport = () => {
     const mechIncome = vehicleMechanicRows.reduce((sum, item) => sum + Number(item.total || 0), 0);
-    const mechPart = vehicleMechanicRows.reduce((sum, item) => sum + Number(item.partCost || 0), 0);
     const expIncome = vehicleExpertiseRows.reduce((sum, item) => sum + Number(item.fee || 0), 0);
     const partCost = vehiclePartsRows.reduce((sum, item) => sum + Number(item.cost || 0), 0);
-    const workOrderTotal = vehicleWorkOrderRows.reduce(
-      (sum, item) => sum + Number(item.grandTotal || 0),
-      0
-    );
+    const workOrderTotal = vehicleWorkOrderRows.reduce((sum, item) => sum + Number(item.grandTotal || 0), 0);
 
     copyText(
       `ARAC TAKIP RAPORU
@@ -1754,7 +1710,6 @@ Ekspertiz Kayit: ${vehicleExpertiseRows.length}
 Parca Kayit: ${vehiclePartsRows.length}
 Is Emri Kayit: ${vehicleWorkOrderRows.length}
 Mekanik Gelir: ${formatTRY(mechIncome)}
-Mekanik Parca Maliyeti: ${formatTRY(mechPart)}
 Ekspertiz Geliri: ${formatTRY(expIncome)}
 Parca Tutari: ${formatTRY(partCost)}
 Is Emri Toplami: ${formatTRY(workOrderTotal)}`
@@ -1825,7 +1780,7 @@ Toplam Tutar: ${formatTRY(total)}`
     doc.setFontSize(10);
     doc.text(`Musteri : ${pdfSafe(orderForm.customer) || "-"}`, 16, 52);
     doc.text(`Telefon : ${pdfSafe(orderForm.phone) || "-"}`, 16, 59);
-    doc.text(`Tarih   : ${pdfSafe(orderForm.date) || "-"}`, 16, 66);
+    doc.text(`Tarih   : ${pdfSafe(formatDateForDisplay(orderForm.date)) || "-"}`, 16, 66);
     doc.text(`Adres   : ${pdfSafe(orderForm.address) || "-"}`, 16, 73);
 
     doc.text(`Arac    : ${pdfSafe(orderForm.car) || "-"}`, 114, 52);
@@ -1879,7 +1834,7 @@ Toplam Tutar: ${formatTRY(total)}`
     { key: "mechanic", label: "Mekanik" },
     { key: "expertise", label: "Ekspertiz" },
     { key: "expenses", label: "Gider" },
-    { key: "employees", label: "Eleman Ödemeleri" },
+    { key: "employees", label: "Eleman" },
     { key: "suppliers", label: "Parçacılar" },
     { key: "parts", label: "Parça" },
     { key: "vehicle", label: "Araç Takip" },
@@ -1888,15 +1843,15 @@ Toplam Tutar: ${formatTRY(total)}`
 
   if (!session) {
     return (
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,rgba(180,20,20,0.20),transparent_20%),linear-gradient(135deg,#050505_0%,#111217_45%,#2b0909_100%)] px-4 py-8 text-white md:px-8">
+      <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,rgba(180,20,20,0.18),transparent_20%),linear-gradient(135deg,#050505_0%,#111217_45%,#200909_100%)] px-4 py-8 text-white md:px-8">
         <div className="mx-auto flex min-h-[90vh] max-w-7xl items-center justify-center">
           <div className="grid w-full max-w-5xl gap-6 lg:grid-cols-2">
-            <div className="rounded-[32px] border border-red-500/20 bg-gradient-to-r from-black via-zinc-950 to-red-950 p-8 shadow-2xl">
+            <div className="rounded-[32px] border border-white/10 bg-gradient-to-r from-black via-zinc-950 to-red-950 p-8 shadow-2xl">
               <div className="mb-3 inline-flex rounded-full border border-red-500/20 bg-red-600/15 px-3 py-1 text-xs text-red-400">
-                ORGUNLAR GARAGE
+                ORGUNLAR FİNANS PANEL
               </div>
-              <h1 className="text-4xl font-black tracking-tight">Finans & Operasyon Yönetim Paneli</h1>
-              <p className="mt-4 text-zinc-400">Giriş yapıp sisteme devam et.</p>
+              <h1 className="text-4xl font-black tracking-tight">Finans & Operasyon Takip Sistemi</h1>
+              <p className="mt-4 text-zinc-400">Kullanıcı adı ve şifre ile giriş yap.</p>
             </div>
 
             <div className="rounded-[32px] border border-white/10 bg-black/55 p-8 shadow-2xl backdrop-blur">
@@ -1938,7 +1893,7 @@ Toplam Tutar: ${formatTRY(total)}`
 
   if (loadingData) {
     return (
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,rgba(180,20,20,0.20),transparent_20%),linear-gradient(135deg,#050505_0%,#111217_45%,#2b0909_100%)] px-4 py-8 text-white md:px-8">
+      <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,rgba(180,20,20,0.18),transparent_20%),linear-gradient(135deg,#050505_0%,#111217_45%,#200909_100%)] px-4 py-8 text-white md:px-8">
         <div className="mx-auto flex min-h-[80vh] max-w-7xl items-center justify-center">
           <div className="rounded-3xl border border-white/10 bg-black/55 px-6 py-4 text-white">
             Veriler yükleniyor...
@@ -1949,12 +1904,12 @@ Toplam Tutar: ${formatTRY(total)}`
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,rgba(180,20,20,0.20),transparent_20%),linear-gradient(135deg,#050505_0%,#111217_45%,#2b0909_100%)] px-4 py-5 text-white md:px-8">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,rgba(180,20,20,0.18),transparent_20%),linear-gradient(135deg,#050505_0%,#111217_45%,#200909_100%)] px-4 py-5 text-white md:px-8">
       <div className="mx-auto w-full max-w-[1800px] space-y-6">
         <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-black/50 p-3 lg:flex-row lg:items-center">
           <div className="min-w-[240px] pl-2">
-            <div className="text-xl font-black tracking-wide text-white">ORGUNLAR GARAGE</div>
-            <div className="text-sm text-zinc-400">Luxury Car Service</div>
+            <div className="text-xl font-black tracking-wide text-white">ORGUNLAR FİNANS PANEL</div>
+            <div className="text-sm text-zinc-400">Haftalık Finans ve Operasyon Takibi</div>
           </div>
 
           <div className="flex min-w-0 flex-1 flex-col gap-3 lg:ml-auto lg:items-end">
@@ -1996,38 +1951,25 @@ Toplam Tutar: ${formatTRY(total)}`
         {tab === "panel" && (
           <>
             <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }}>
-              <div className="overflow-hidden rounded-[32px] border border-red-500/20 bg-gradient-to-r from-black via-zinc-950 to-red-950 shadow-2xl">
+              <div className="overflow-hidden rounded-[32px] border border-white/10 bg-gradient-to-r from-black via-zinc-950 to-red-950 shadow-2xl">
                 <div className="p-6 md:p-8">
                   <div className="flex flex-col gap-4 md:flex-row md:flex-wrap md:items-center md:justify-between">
                     <div className="max-w-3xl">
                       <div className="mb-3 inline-flex rounded-full border border-red-500/20 bg-red-600/15 px-3 py-1 text-xs text-red-400">
-                        ORGUNLAR GARAGE
+                        ORGUNLAR FİNANS PANEL
                       </div>
                       <h1 className="text-3xl font-black tracking-tight md:text-5xl">
-                        Finans & Operasyon Yönetim Paneli
+                        Haftalık Finans Özeti
                       </h1>
                       <p className="mt-2 text-zinc-400">
-                        Gelir, gider, eleman ödemeleri, parçacı, parça, araç takip, iş emri ve profesyonel dashboard
+                        Pazartesi - Cumartesi haftalık hesap, aylık özet ve tek tuş Excel aktarımı.
                       </p>
                     </div>
 
                     <div className="min-w-[280px] rounded-3xl border border-white/10 bg-white/5 p-5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-zinc-400">Genel Durum</span>
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs ${
-                            status === "İYİ"
-                              ? "bg-emerald-500/15 text-emerald-400"
-                              : status === "ORTA"
-                              ? "bg-amber-500/15 text-amber-400"
-                              : "bg-red-500/15 text-red-400"
-                          }`}
-                        >
-                          {status}
-                        </span>
-                      </div>
-                      <div className="mt-4 text-2xl font-black">{formatTRY(afterRent)}</div>
-                      <div className="mt-1 text-xs text-zinc-500">Kira sonrası durum</div>
+                      <div className="text-sm text-zinc-400">Haftalık Net</div>
+                      <div className="mt-3 text-3xl font-black text-white">{formatTRY(weekIncome - weekExpense)}</div>
+                      <div className="mt-1 text-xs text-zinc-500">Pazartesi - Cumartesi</div>
                     </div>
                   </div>
                 </div>
@@ -2035,119 +1977,38 @@ Toplam Tutar: ${formatTRY(total)}`
             </motion.div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <StatCard title="Toplam Gelir" value={formatTRY(totalIncome)} icon={<Wallet className="h-5 w-5" />} />
-              <StatCard title="Toplam Gider" value={formatTRY(totalExpenses)} icon={<TrendingDown className="h-5 w-5" />} />
+              <StatCard title="Haftalık Gelir" value={formatTRY(weekIncome)} icon={<TrendingUp className="h-5 w-5" />} />
+              <StatCard title="Haftalık Gider" value={formatTRY(weekExpense)} icon={<TrendingDown className="h-5 w-5" />} />
+              <StatCard title="Aylık Net" value={formatTRY(monthNet)} icon={<BadgeDollarSign className="h-5 w-5" />} />
               <StatCard title="Parça Borcu" value={formatTRY(totalDebt)} icon={<Package className="h-5 w-5" />} />
-              <StatCard title="Net Durum" value={formatTRY(net)} icon={<TrendingUp className="h-5 w-5" />} />
-              <StatCard title="Bugün Gelir" value={formatTRY(todayIncome)} icon={<TrendingUp className="h-5 w-5" />} subtle={todayStr} />
-              <StatCard title="Bugün Gider" value={formatTRY(todayExpense)} icon={<TrendingDown className="h-5 w-5" />} subtle={todayStr} />
-              <StatCard title="Bu Hafta Net" value={formatTRY(weekIncome - weekExpense)} icon={<BarChart3 className="h-5 w-5" />} subtle="Son 7 gün" />
-              <StatCard title="Bu Ay Net" value={formatTRY(monthNet)} icon={<BadgeDollarSign className="h-5 w-5" />} subtle="Aylık durum" />
             </div>
 
             <div className="grid gap-6 xl:grid-cols-3">
               <div className="xl:col-span-2">
-                <MiniBarChart data={sevenDayChartData} />
+                <MiniBarChart data={weeklyChartData} />
               </div>
 
-              <SectionCard icon={<Package className="h-5 w-5" />} title="Hızlı Özet" desc="Canlı özet kutuları">
+              <SectionCard icon={<Wallet className="h-5 w-5" />} title="Kısa Özet" desc="Sadece gerekli bilgiler">
                 <div className="grid gap-3">
                   <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                    <div className="text-sm text-zinc-400">Ödenmemiş parça</div>
-                    <div className="mt-1 text-xl font-black text-white">{unpaidParts.length} adet</div>
+                    <div className="text-sm text-zinc-400">Toplam genel gelir</div>
+                    <div className="mt-1 text-xl font-black text-white">{formatTRY(totalIncome)}</div>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                    <div className="text-sm text-zinc-400">Toplam iş emri tutarı</div>
-                    <div className="mt-1 text-xl font-black text-white">{formatTRY(totalWorkOrdersAmount)}</div>
+                    <div className="text-sm text-zinc-400">Toplam genel gider</div>
+                    <div className="mt-1 text-xl font-black text-white">{formatTRY(totalExpenses)}</div>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                    <div className="text-sm text-zinc-400">Bu hafta gelir</div>
-                    <div className="mt-1 text-xl font-black text-white">{formatTRY(weekIncome)}</div>
+                    <div className="text-sm text-zinc-400">Kira sonrası durum</div>
+                    <div className="mt-1 text-xl font-black text-white">{formatTRY(afterRent)}</div>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                    <div className="text-sm text-zinc-400">Bu hafta gider</div>
-                    <div className="mt-1 text-xl font-black text-white">{formatTRY(weekExpense)}</div>
-                  </div>
-                </div>
-              </SectionCard>
-            </div>
-
-            <div className="grid gap-6 xl:grid-cols-2">
-              <SectionCard icon={<AlertTriangle className="h-5 w-5" />} title="Özet" desc="Genel durum">
-                <DataTable
-                  headers={["Kalem", "Tutar"]}
-                  rows={[
-                    ["Mekanik gelir", formatTRY(totalMechanic)],
-                    ["Ekspertiz gelir", formatTRY(totalExpertise)],
-                    ["Normal gider", formatTRY(totalNormalExpenses)],
-                    ["Eleman ödemeleri", formatTRY(totalEmployeeExpenses)],
-                    ["Toplam gider", formatTRY(totalExpenses)],
-                    ["Parça borcu", formatTRY(totalDebt)],
-                    ["İş emri toplamı", formatTRY(totalWorkOrdersAmount)],
-                    ["Net", formatTRY(net)],
-                    ["Kira sonrası", formatTRY(afterRent)],
-                  ]}
-                />
-              </SectionCard>
-
-              <SectionCard icon={<Building2 className="h-5 w-5" />} title="Durum Analizi" desc="Masraf, kira ve yorum">
-                <div className="space-y-4">
-                  <div
-                    className={`rounded-3xl border p-5 ${
-                      afterRent >= 0
-                        ? "border-emerald-500/20 bg-emerald-500/10"
-                        : "border-red-500/20 bg-red-500/10"
-                    }`}
-                  >
-                    <div className="text-2xl font-black">
-                      {afterRent >= 0 ? "İyi durumdasın" : "Masraf baskısı yüksek"}
-                    </div>
-                    <p className="mt-2 text-sm text-zinc-300">
-                      {afterRent >= 0
-                        ? "Kira çıktıktan sonra para kalıyor."
-                        : "Gelir artırmak veya gider azaltmak gerekiyor."}
-                    </p>
-                  </div>
-
-                  <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-                    <div className="mb-3 text-sm text-zinc-400">Aylık Kira</div>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <input
-                        type="number"
-                        value={rentForm}
-                        disabled={!isAdmin}
-                        onChange={(e) => setRentForm(e.target.value)}
-                        placeholder="Kira tutarı"
-                        className={`w-full rounded-2xl border border-zinc-300 bg-white px-4 py-4 text-base text-zinc-900 outline-none transition focus:border-red-500 md:py-3 md:text-sm ${
-                          !isAdmin ? "cursor-not-allowed opacity-60" : ""
-                        }`}
-                      />
-                      <button
-                        onClick={updateRent}
-                        className={`rounded-2xl px-4 py-4 text-base font-medium text-white transition md:py-3 md:text-sm ${
-                          isAdmin ? "bg-red-600 hover:bg-red-500" : "cursor-not-allowed bg-zinc-700"
-                        }`}
-                      >
-                        Kaydet
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-                    <div className="mb-3 text-sm text-zinc-400">En çok gider kalemleri</div>
-                    <div className="space-y-2">
-                      {topExpenseTypes.length === 0 ? (
-                        <div className="text-sm text-zinc-500">Henüz gider kaydı yok</div>
-                      ) : (
-                        topExpenseTypes.map((item) => (
-                          <div
-                            key={item.type}
-                            className="flex items-center justify-between rounded-2xl border border-white/5 bg-black/20 px-3 py-3"
-                          >
-                            <span className="text-zinc-200">{item.type}</span>
-                            <span className="font-semibold text-white">{formatTRY(item.amount)}</span>
-                          </div>
-                        ))
+                    <div className="text-sm text-zinc-400">Bu ay iş emri toplamı</div>
+                    <div className="mt-1 text-xl font-black text-white">
+                      {formatTRY(
+                        data.workOrders
+                          .filter((x) => isSameMonth(x.date, todayDate))
+                          .reduce((sum, x) => sum + Number(x.grandTotal || 0), 0)
                       )}
                     </div>
                   </div>
@@ -2155,17 +2016,31 @@ Toplam Tutar: ${formatTRY(total)}`
               </SectionCard>
             </div>
 
-            <SectionCard icon={<FileText className="h-5 w-5" />} title="Son İş Emirleri" desc="En son açılan kayıtlar">
-              <DataTable
-                headers={["Tarih", "Müşteri", "Araç", "Plaka", "Toplam"]}
-                rows={recentWorkOrders.map((item) => [
-                  item.date,
-                  item.customer,
-                  item.car,
-                  item.plate,
-                  formatTRY(item.grandTotal),
-                ])}
-              />
+            <SectionCard icon={<Building2 className="h-5 w-5" />} title="Haftalık Hesap" desc="Pazartesi - Cumartesi çalışma düzenine göre">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+                  <div className="mb-2 text-sm text-zinc-400">Haftalık gelir</div>
+                  <div className="text-2xl font-black text-white">{formatTRY(weekIncome)}</div>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+                  <div className="mb-2 text-sm text-zinc-400">Haftalık gider</div>
+                  <div className="text-2xl font-black text-white">{formatTRY(weekExpense)}</div>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+                  <div className="mb-2 text-sm text-zinc-400">Haftalık net</div>
+                  <div className="text-2xl font-black text-white">{formatTRY(weekIncome - weekExpense)}</div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-col gap-3 md:flex-row">
+                <button
+                  onClick={exportMonthlyExcel}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-4 font-medium text-white transition hover:bg-emerald-500 md:py-3"
+                >
+                  <Download className="h-4 w-4" />
+                  Bu ayın tüm verilerini Excel aktar
+                </button>
+              </div>
             </SectionCard>
           </>
         )}
@@ -2183,34 +2058,14 @@ Toplam Tutar: ${formatTRY(total)}`
                 icon={<Wrench className="h-5 w-5" />}
                 title="Mekanik"
                 desc="Araç işlem kayıtları"
-                right={<FilterBar filter={mechanicFilter} setFilter={setMechanicFilter} onReport={buildMechanicReport} />}
+                right={<FilterBar filter={mechanicFilter} setFilter={setMechanicFilter} />}
               >
                 <div className="mb-4 text-xs text-zinc-400">
                   {isAdmin ? "Admin: ekleme, düzenleme, silme açık." : "Personel: sadece kayıt ekleme açık."}
                 </div>
 
-                <div className="mb-3 grid grid-cols-2 gap-2 md:hidden">
-                  <button
-                    onClick={() =>
-                      setMechanicForm((prev) => ({
-                        ...prev,
-                        date: toDDMMYYYY(new Date()),
-                      }))
-                    }
-                    className="rounded-xl bg-zinc-800 py-3 text-white"
-                  >
-                    Bugün
-                  </button>
-                  <button
-                    onClick={resetMechanicForm}
-                    className="rounded-xl bg-red-600 py-3 text-white"
-                  >
-                    Temizle
-                  </button>
-                </div>
-
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-8">
-                  <TextInput value={mechanicForm.date} onChange={(value) => setMechanicForm({ ...mechanicForm, date: value })} placeholder="Tarih gg.aa.yyyy" />
+                  <TextInput type="date" value={mechanicForm.date} onChange={(value) => setMechanicForm({ ...mechanicForm, date: value })} placeholder="Tarih" />
                   <TextInput value={mechanicForm.car} onChange={(value) => setMechanicForm({ ...mechanicForm, car: value })} placeholder="Araç" />
                   <TextInput value={mechanicForm.plate} onChange={(value) => setMechanicForm({ ...mechanicForm, plate: value })} placeholder="Plaka" />
                   <TextInput value={mechanicForm.service} onChange={(value) => setMechanicForm({ ...mechanicForm, service: value })} placeholder="İşlem" />
@@ -2234,31 +2089,28 @@ Toplam Tutar: ${formatTRY(total)}`
 
                 <div className="mt-6">
                   <DataTable
-                    headers={["Tarih", "Araç", "Plaka", "İşlem", "Parça", "İşçilik", "Toplam", "İşlem"]}
+                    headers={["Tarih", "Araç", "Plaka", "İşlem", "Parça", "İşçilik", "Toplam", "Ekleyen", "İşlem"]}
                     rows={mechanicRows.map((item) => [
-                      item.date,
+                      formatDateForDisplay(item.date),
                       item.car,
                       item.plate,
                       item.service,
                       formatTRY(item.partCost),
                       formatTRY(item.labor),
                       formatTRY(item.total),
+                      item.createdBy,
                       <div key={item.id} className="flex gap-2">
-                        <button
-                          onClick={() => editMechanic(item.id)}
-                          className={`rounded-xl p-2 ${isAdmin ? "bg-white/10 text-white" : "bg-zinc-700/30 text-zinc-500"}`}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteMechanic(item.id)}
-                          className={`rounded-xl p-2 ${isAdmin ? "bg-red-600/20 text-red-300" : "bg-zinc-700/30 text-zinc-500"}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        <button onClick={() => editMechanic(item.id)} className={`rounded-xl p-2 ${isAdmin ? "bg-white/10 text-white" : "bg-zinc-700/30 text-zinc-500"}`}><Pencil className="h-4 w-4" /></button>
+                        <button onClick={() => deleteMechanic(item.id)} className={`rounded-xl p-2 ${isAdmin ? "bg-red-600/20 text-red-300" : "bg-zinc-700/30 text-zinc-500"}`}><Trash2 className="h-4 w-4" /></button>
                       </div>,
                     ])}
                   />
+                </div>
+
+                <div className="mt-6">
+                  <button onClick={buildMechanicReport} className="w-full rounded-2xl bg-white/10 px-4 py-4 font-medium text-white transition hover:bg-white/15 md:w-auto md:px-6 md:py-3">
+                    Rapor al
+                  </button>
                 </div>
               </SectionCard>
             )}
@@ -2268,14 +2120,14 @@ Toplam Tutar: ${formatTRY(total)}`
                 icon={<ClipboardCheck className="h-5 w-5" />}
                 title="Ekspertiz"
                 desc="Ekspertiz kayıtları"
-                right={<FilterBar filter={expertiseFilter} setFilter={setExpertiseFilter} onReport={buildExpertiseReport} />}
+                right={<FilterBar filter={expertiseFilter} setFilter={setExpertiseFilter} />}
               >
                 <div className="mb-4 text-xs text-zinc-400">
                   {isAdmin ? "Admin: ekleme, düzenleme, silme açık." : "Personel: sadece kayıt ekleme açık."}
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-8">
-                  <TextInput value={expertiseForm.date} onChange={(value) => setExpertiseForm({ ...expertiseForm, date: value })} placeholder="Tarih gg.aa.yyyy" />
+                  <TextInput type="date" value={expertiseForm.date} onChange={(value) => setExpertiseForm({ ...expertiseForm, date: value })} placeholder="Tarih" />
                   <TextInput value={expertiseForm.car} onChange={(value) => setExpertiseForm({ ...expertiseForm, car: value })} placeholder="Araç" />
                   <TextInput value={expertiseForm.plate} onChange={(value) => setExpertiseForm({ ...expertiseForm, plate: value })} placeholder="Plaka" />
                   <TextInput value={expertiseForm.packageType} onChange={(value) => setExpertiseForm({ ...expertiseForm, packageType: value })} placeholder="Paket" />
@@ -2291,10 +2143,7 @@ Toplam Tutar: ${formatTRY(total)}`
                     ]}
                   />
                   <div className="flex flex-col gap-2 xl:col-span-2 md:flex-row">
-                    <button
-                      onClick={addExpertise}
-                      className="w-full rounded-2xl bg-red-600 px-4 py-4 text-base font-medium text-white transition hover:bg-red-500 md:py-3 md:text-sm"
-                    >
+                    <button onClick={addExpertise} className="w-full rounded-2xl bg-red-600 px-4 py-4 text-base font-medium text-white transition hover:bg-red-500 md:py-3 md:text-sm">
                       {editingExpertiseId ? "Güncelle" : "Kayıt ekle"}
                     </button>
                     {editingExpertiseId && isAdmin ? (
@@ -2307,30 +2156,27 @@ Toplam Tutar: ${formatTRY(total)}`
 
                 <div className="mt-6">
                   <DataTable
-                    headers={["Tarih", "Araç", "Plaka", "Paket", "Ücret", "Ödeme", "İşlem"]}
+                    headers={["Tarih", "Araç", "Plaka", "Paket", "Ücret", "Ödeme", "Ekleyen", "İşlem"]}
                     rows={expertiseRows.map((item) => [
-                      item.date,
+                      formatDateForDisplay(item.date),
                       item.car,
                       item.plate,
                       item.packageType,
                       formatTRY(item.fee),
                       item.payment,
+                      item.createdBy,
                       <div key={item.id} className="flex gap-2">
-                        <button
-                          onClick={() => editExpertise(item.id)}
-                          className={`rounded-xl p-2 ${isAdmin ? "bg-white/10 text-white" : "bg-zinc-700/30 text-zinc-500"}`}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteExpertise(item.id)}
-                          className={`rounded-xl p-2 ${isAdmin ? "bg-red-600/20 text-red-300" : "bg-zinc-700/30 text-zinc-500"}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        <button onClick={() => editExpertise(item.id)} className={`rounded-xl p-2 ${isAdmin ? "bg-white/10 text-white" : "bg-zinc-700/30 text-zinc-500"}`}><Pencil className="h-4 w-4" /></button>
+                        <button onClick={() => deleteExpertise(item.id)} className={`rounded-xl p-2 ${isAdmin ? "bg-red-600/20 text-red-300" : "bg-zinc-700/30 text-zinc-500"}`}><Trash2 className="h-4 w-4" /></button>
                       </div>,
                     ])}
                   />
+                </div>
+
+                <div className="mt-6">
+                  <button onClick={buildExpertiseReport} className="w-full rounded-2xl bg-white/10 px-4 py-4 font-medium text-white transition hover:bg-white/15 md:w-auto md:px-6 md:py-3">
+                    Rapor al
+                  </button>
                 </div>
               </SectionCard>
             )}
@@ -2340,26 +2186,19 @@ Toplam Tutar: ${formatTRY(total)}`
                 icon={<Receipt className="h-5 w-5" />}
                 title="Gider"
                 desc="Gider kayıtları"
-                right={<FilterBar filter={expenseFilter} setFilter={setExpenseFilter} onReport={buildExpenseReport} />}
+                right={<FilterBar filter={expenseFilter} setFilter={setExpenseFilter} />}
               >
                 <div className="mb-4 text-xs text-zinc-400">
-                  {isAdmin
-                    ? "Admin: ekleme, düzenleme, silme açık."
-                    : "Personel: kayıt ekleyebilir, düzenleme ve silme yapamaz."}
+                  {isAdmin ? "Admin: ekleme, düzenleme, silme açık." : "Personel: kayıt ekleyebilir, düzenleme ve silme yapamaz."}
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-                  <TextInput disabled={!canAddSharedRecords} value={expenseForm.date} onChange={(value) => setExpenseForm({ ...expenseForm, date: value })} placeholder="Tarih gg.aa.yyyy" />
+                  <TextInput type="date" disabled={!canAddSharedRecords} value={expenseForm.date} onChange={(value) => setExpenseForm({ ...expenseForm, date: value })} placeholder="Tarih" />
                   <TextInput disabled={!canAddSharedRecords} value={expenseForm.type} onChange={(value) => setExpenseForm({ ...expenseForm, type: value })} placeholder="Tür" />
                   <TextInput disabled={!canAddSharedRecords} value={expenseForm.note} onChange={(value) => setExpenseForm({ ...expenseForm, note: value })} placeholder="Açıklama" />
                   <TextInput disabled={!canAddSharedRecords} value={expenseForm.amount} onChange={(value) => setExpenseForm({ ...expenseForm, amount: value })} placeholder="Tutar" />
                   <div className="flex flex-col gap-2 md:flex-row">
-                    <button
-                      onClick={addExpense}
-                      className={`w-full rounded-2xl px-4 py-4 text-base font-medium text-white transition md:py-3 md:text-sm ${
-                        canAddSharedRecords ? "bg-red-600 hover:bg-red-500" : "cursor-not-allowed bg-zinc-700"
-                      }`}
-                    >
+                    <button onClick={addExpense} className={`w-full rounded-2xl px-4 py-4 text-base font-medium text-white transition md:py-3 md:text-sm ${canAddSharedRecords ? "bg-red-600 hover:bg-red-500" : "cursor-not-allowed bg-zinc-700"}`}>
                       {editingExpenseId ? "Güncelle" : "Gider ekle"}
                     </button>
                     {editingExpenseId && isAdmin ? (
@@ -2372,28 +2211,25 @@ Toplam Tutar: ${formatTRY(total)}`
 
                 <div className="mt-6">
                   <DataTable
-                    headers={["Tarih", "Tür", "Açıklama", "Tutar", "İşlem"]}
-                    rows={data.expenses.map((item) => [
-                      item.date,
+                    headers={["Tarih", "Tür", "Açıklama", "Tutar", "Ekleyen", "İşlem"]}
+                    rows={expenseRows.map((item) => [
+                      formatDateForDisplay(item.date),
                       item.type,
                       item.note,
                       formatTRY(item.amount),
+                      item.createdBy,
                       <div key={item.id} className="flex gap-2">
-                        <button
-                          onClick={() => editExpense(item.id)}
-                          className={`rounded-xl p-2 ${isAdmin ? "bg-white/10 text-white" : "bg-zinc-700/30 text-zinc-500"}`}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteExpense(item.id)}
-                          className={`rounded-xl p-2 ${isAdmin ? "bg-red-600/20 text-red-300" : "bg-zinc-700/30 text-zinc-500"}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        <button onClick={() => editExpense(item.id)} className={`rounded-xl p-2 ${isAdmin ? "bg-white/10 text-white" : "bg-zinc-700/30 text-zinc-500"}`}><Pencil className="h-4 w-4" /></button>
+                        <button onClick={() => deleteExpense(item.id)} className={`rounded-xl p-2 ${isAdmin ? "bg-red-600/20 text-red-300" : "bg-zinc-700/30 text-zinc-500"}`}><Trash2 className="h-4 w-4" /></button>
                       </div>,
                     ])}
                   />
+                </div>
+
+                <div className="mt-6">
+                  <button onClick={buildExpenseReport} className="w-full rounded-2xl bg-white/10 px-4 py-4 font-medium text-white transition hover:bg-white/15 md:w-auto md:px-6 md:py-3">
+                    Rapor al
+                  </button>
                 </div>
               </SectionCard>
             )}
@@ -2403,26 +2239,19 @@ Toplam Tutar: ${formatTRY(total)}`
                 icon={<BadgeDollarSign className="h-5 w-5" />}
                 title="Eleman Ödemeleri"
                 desc="Maaş ve personel ödeme kayıtları"
-                right={<FilterBar filter={employeeFilter} setFilter={setEmployeeFilter} onReport={buildEmployeeReport} />}
+                right={<FilterBar filter={employeeFilter} setFilter={setEmployeeFilter} />}
               >
                 <div className="mb-4 text-xs text-zinc-400">
-                  {isAdmin
-                    ? "Admin: ekleme, düzenleme, silme açık."
-                    : "Personel: kayıt ekleyebilir, düzenleme ve silme yapamaz."}
+                  {isAdmin ? "Admin: ekleme, düzenleme, silme açık." : "Personel: kayıt ekleyebilir, düzenleme ve silme yapamaz."}
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-                  <TextInput disabled={!canAddSharedRecords} value={employeeForm.date} onChange={(value) => setEmployeeForm({ ...employeeForm, date: value })} placeholder="Tarih gg.aa.yyyy" />
+                  <TextInput type="date" disabled={!canAddSharedRecords} value={employeeForm.date} onChange={(value) => setEmployeeForm({ ...employeeForm, date: value })} placeholder="Tarih" />
                   <TextInput disabled={!canAddSharedRecords} value={employeeForm.employeeName} onChange={(value) => setEmployeeForm({ ...employeeForm, employeeName: value })} placeholder="Eleman adı" />
                   <TextInput disabled={!canAddSharedRecords} value={employeeForm.note} onChange={(value) => setEmployeeForm({ ...employeeForm, note: value })} placeholder="Açıklama" />
                   <TextInput disabled={!canAddSharedRecords} value={employeeForm.amount} onChange={(value) => setEmployeeForm({ ...employeeForm, amount: value })} placeholder="Tutar" />
                   <div className="flex flex-col gap-2 md:flex-row">
-                    <button
-                      onClick={addEmployeePayment}
-                      className={`w-full rounded-2xl px-4 py-4 text-base font-medium text-white transition md:py-3 md:text-sm ${
-                        canAddSharedRecords ? "bg-red-600 hover:bg-red-500" : "cursor-not-allowed bg-zinc-700"
-                      }`}
-                    >
+                    <button onClick={addEmployeePayment} className={`w-full rounded-2xl px-4 py-4 text-base font-medium text-white transition md:py-3 md:text-sm ${canAddSharedRecords ? "bg-red-600 hover:bg-red-500" : "cursor-not-allowed bg-zinc-700"}`}>
                       {editingEmployeeId ? "Güncelle" : "Ödeme ekle"}
                     </button>
                     {editingEmployeeId && isAdmin ? (
@@ -2435,28 +2264,25 @@ Toplam Tutar: ${formatTRY(total)}`
 
                 <div className="mt-6">
                   <DataTable
-                    headers={["Tarih", "Eleman", "Açıklama", "Tutar", "İşlem"]}
+                    headers={["Tarih", "Eleman", "Açıklama", "Tutar", "Ekleyen", "İşlem"]}
                     rows={employeeRows.map((item) => [
-                      item.date,
+                      formatDateForDisplay(item.date),
                       item.employeeName,
                       item.note || "-",
                       formatTRY(item.amount),
+                      item.createdBy,
                       <div key={item.id} className="flex gap-2">
-                        <button
-                          onClick={() => editEmployeePayment(item.id)}
-                          className={`rounded-xl p-2 ${isAdmin ? "bg-white/10 text-white" : "bg-zinc-700/30 text-zinc-500"}`}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteEmployeePayment(item.id)}
-                          className={`rounded-xl p-2 ${isAdmin ? "bg-red-600/20 text-red-300" : "bg-zinc-700/30 text-zinc-500"}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        <button onClick={() => editEmployeePayment(item.id)} className={`rounded-xl p-2 ${isAdmin ? "bg-white/10 text-white" : "bg-zinc-700/30 text-zinc-500"}`}><Pencil className="h-4 w-4" /></button>
+                        <button onClick={() => deleteEmployeePayment(item.id)} className={`rounded-xl p-2 ${isAdmin ? "bg-red-600/20 text-red-300" : "bg-zinc-700/30 text-zinc-500"}`}><Trash2 className="h-4 w-4" /></button>
                       </div>,
                     ])}
                   />
+                </div>
+
+                <div className="mt-6">
+                  <button onClick={buildEmployeeReport} className="w-full rounded-2xl bg-white/10 px-4 py-4 font-medium text-white transition hover:bg-white/15 md:w-auto md:px-6 md:py-3">
+                    Rapor al
+                  </button>
                 </div>
               </SectionCard>
             )}
@@ -2464,9 +2290,7 @@ Toplam Tutar: ${formatTRY(total)}`
             {tab === "suppliers" && (
               <SectionCard icon={<Users className="h-5 w-5" />} title="Parçacılar" desc="Parçacı ekleme ve listeleme">
                 <div className="mb-4 text-xs text-zinc-400">
-                  {isAdmin
-                    ? "Admin: ekleme, düzenleme, silme açık."
-                    : "Personel: kayıt ekleyebilir, düzenleme ve silme yapamaz."}
+                  {isAdmin ? "Admin: ekleme, düzenleme, silme açık." : "Personel: kayıt ekleyebilir, düzenleme ve silme yapamaz."}
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -2474,12 +2298,7 @@ Toplam Tutar: ${formatTRY(total)}`
                   <TextInput disabled={!canAddSharedRecords} value={supplierForm.phone} onChange={(value) => setSupplierForm({ ...supplierForm, phone: value })} placeholder="Telefon" />
                   <TextInput disabled={!canAddSharedRecords} value={supplierForm.note} onChange={(value) => setSupplierForm({ ...supplierForm, note: value })} placeholder="Not" />
                   <div className="flex flex-col gap-2 md:col-span-2 md:flex-row">
-                    <button
-                      onClick={addSupplier}
-                      className={`w-full rounded-2xl px-4 py-4 text-base font-medium text-white transition md:py-3 md:text-sm ${
-                        canAddSharedRecords ? "bg-red-600 hover:bg-red-500" : "cursor-not-allowed bg-zinc-700"
-                      }`}
-                    >
+                    <button onClick={addSupplier} className={`w-full rounded-2xl px-4 py-4 text-base font-medium text-white transition md:py-3 md:text-sm ${canAddSharedRecords ? "bg-red-600 hover:bg-red-500" : "cursor-not-allowed bg-zinc-700"}`}>
                       {editingSupplierId ? "Güncelle" : "Parçacı ekle"}
                     </button>
                     {editingSupplierId && isAdmin ? (
@@ -2492,24 +2311,15 @@ Toplam Tutar: ${formatTRY(total)}`
 
                 <div className="mt-6">
                   <DataTable
-                    headers={["Parçacı", "Telefon", "Not", "İşlem"]}
+                    headers={["Parçacı", "Telefon", "Not", "Ekleyen", "İşlem"]}
                     rows={data.suppliers.map((supplier) => [
                       supplier.name,
                       supplier.phone || "-",
                       supplier.note || "-",
+                      supplier.createdBy,
                       <div key={supplier.id} className="flex gap-2">
-                        <button
-                          onClick={() => editSupplier(supplier.id)}
-                          className={`rounded-xl p-2 ${isAdmin ? "bg-white/10 text-white" : "bg-zinc-700/30 text-zinc-500"}`}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteSupplier(supplier.id)}
-                          className={`rounded-xl p-2 ${isAdmin ? "bg-red-600/20 text-red-300" : "bg-zinc-700/30 text-zinc-500"}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        <button onClick={() => editSupplier(supplier.id)} className={`rounded-xl p-2 ${isAdmin ? "bg-white/10 text-white" : "bg-zinc-700/30 text-zinc-500"}`}><Pencil className="h-4 w-4" /></button>
+                        <button onClick={() => deleteSupplier(supplier.id)} className={`rounded-xl p-2 ${isAdmin ? "bg-red-600/20 text-red-300" : "bg-zinc-700/30 text-zinc-500"}`}><Trash2 className="h-4 w-4" /></button>
                       </div>,
                     ])}
                   />
@@ -2521,8 +2331,8 @@ Toplam Tutar: ${formatTRY(total)}`
               <SectionCard
                 icon={<Package className="h-5 w-5" />}
                 title="Parça"
-                desc="Parça kayıtları ve parçacı filtresi"
-                right={<FilterBar filter={partsFilter} setFilter={setPartsFilter} onReport={buildPartsReport} />}
+                desc="Parça kayıtları"
+                right={<FilterBar filter={partsFilter} setFilter={setPartsFilter} />}
               >
                 <div className="mb-4 text-xs text-zinc-400">
                   {isAdmin ? "Admin: ekleme, düzenleme, silme açık." : "Personel: sadece parça ekleme açık."}
@@ -2553,7 +2363,7 @@ Toplam Tutar: ${formatTRY(total)}`
                 </div>
 
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-8">
-                  <TextInput value={partForm.date} onChange={(value) => setPartForm({ ...partForm, date: value })} placeholder="Tarih gg.aa.yyyy" />
+                  <TextInput type="date" value={partForm.date} onChange={(value) => setPartForm({ ...partForm, date: value })} placeholder="Tarih" />
                   <TextInput value={partForm.part} onChange={(value) => setPartForm({ ...partForm, part: value })} placeholder="Parça" />
                   <TextInput value={partForm.car} onChange={(value) => setPartForm({ ...partForm, car: value })} placeholder="Araç" />
                   <TextInput value={partForm.plate} onChange={(value) => setPartForm({ ...partForm, plate: value })} placeholder="Plaka" />
@@ -2572,15 +2382,12 @@ Toplam Tutar: ${formatTRY(total)}`
                     onChange={(value) => setPartForm({ ...partForm, paid: value })}
                     placeholder="Ödeme durumu"
                     options={[
-                      { label: "Hayır", value: "Hayır" },
-                      { label: "Evet", value: "Evet" },
+                      { label: "Ödendi", value: "Ödendi" },
+                      { label: "Ödenmedi", value: "Ödenmedi" },
                     ]}
                   />
                   <div className="flex flex-col gap-2 md:flex-row">
-                    <button
-                      onClick={addPart}
-                      className="w-full rounded-2xl bg-red-600 px-4 py-4 text-base font-medium text-white transition hover:bg-red-500 md:py-3 md:text-sm"
-                    >
+                    <button onClick={addPart} className="w-full rounded-2xl bg-red-600 px-4 py-4 text-base font-medium text-white transition hover:bg-red-500 md:py-3 md:text-sm">
                       {editingPartId ? "Güncelle" : "Parça ekle"}
                     </button>
                     {editingPartId && isAdmin ? (
@@ -2593,31 +2400,28 @@ Toplam Tutar: ${formatTRY(total)}`
 
                 <div className="mt-6">
                   <DataTable
-                    headers={["Tarih", "Parça", "Araç", "Plaka", "Parçacı", "Tutar", "Durum", "İşlem"]}
+                    headers={["Tarih", "Parça", "Araç", "Plaka", "Parçacı", "Tutar", "Durum", "Ekleyen", "İşlem"]}
                     rows={partsRows.map((item) => [
-                      item.date,
+                      formatDateForDisplay(item.date),
                       item.part,
                       item.car,
                       item.plate || "-",
                       supplierNameById(item.supplierId),
                       formatTRY(item.cost),
-                      item.paid ? "Ödendi" : "Borçta",
+                      item.paid ? "Ödendi" : "Ödenmedi",
+                      item.createdBy,
                       <div key={item.id} className="flex gap-2">
-                        <button
-                          onClick={() => editPart(item.id)}
-                          className={`rounded-xl p-2 ${isAdmin ? "bg-white/10 text-white" : "bg-zinc-700/30 text-zinc-500"}`}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => deletePart(item.id)}
-                          className={`rounded-xl p-2 ${isAdmin ? "bg-red-600/20 text-red-300" : "bg-zinc-700/30 text-zinc-500"}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        <button onClick={() => editPart(item.id)} className={`rounded-xl p-2 ${isAdmin ? "bg-white/10 text-white" : "bg-zinc-700/30 text-zinc-500"}`}><Pencil className="h-4 w-4" /></button>
+                        <button onClick={() => deletePart(item.id)} className={`rounded-xl p-2 ${isAdmin ? "bg-red-600/20 text-red-300" : "bg-zinc-700/30 text-zinc-500"}`}><Trash2 className="h-4 w-4" /></button>
                       </div>,
                     ])}
                   />
+                </div>
+
+                <div className="mt-6">
+                  <button onClick={buildPartsReport} className="w-full rounded-2xl bg-white/10 px-4 py-4 font-medium text-white transition hover:bg-white/15 md:w-auto md:px-6 md:py-3">
+                    Rapor al
+                  </button>
                 </div>
               </SectionCard>
             )}
@@ -2631,12 +2435,6 @@ Toplam Tutar: ${formatTRY(total)}`
                   <div className="grid w-full grid-cols-1 gap-2 md:flex md:w-auto md:flex-wrap md:items-center">
                     <SmallDateInput value={vehicleReportStart} onChange={setVehicleReportStart} placeholder="Başlangıç" />
                     <SmallDateInput value={vehicleReportEnd} onChange={setVehicleReportEnd} placeholder="Bitiş" />
-                    <button
-                      onClick={buildVehicleReport}
-                      className="h-12 rounded-xl bg-red-600 px-4 font-medium text-white transition hover:bg-red-500 md:h-11"
-                    >
-                      Rapor al
-                    </button>
                   </div>
                 }
               >
@@ -2663,7 +2461,7 @@ Toplam Tutar: ${formatTRY(total)}`
                     <DataTable
                       headers={["Tarih", "Araç", "Plaka", "İşlem", "Toplam"]}
                       rows={vehicleMechanicRows.map((item) => [
-                        item.date,
+                        formatDateForDisplay(item.date),
                         item.car,
                         item.plate,
                         item.service,
@@ -2677,7 +2475,7 @@ Toplam Tutar: ${formatTRY(total)}`
                     <DataTable
                       headers={["Tarih", "Araç", "Plaka", "Paket", "Ücret"]}
                       rows={vehicleExpertiseRows.map((item) => [
-                        item.date,
+                        formatDateForDisplay(item.date),
                         item.car,
                         item.plate,
                         item.packageType,
@@ -2691,7 +2489,7 @@ Toplam Tutar: ${formatTRY(total)}`
                     <DataTable
                       headers={["Tarih", "Parça", "Araç", "Plaka", "Tutar"]}
                       rows={vehiclePartsRows.map((item) => [
-                        item.date,
+                        formatDateForDisplay(item.date),
                         item.part,
                         item.car,
                         item.plate || "-",
@@ -2705,7 +2503,7 @@ Toplam Tutar: ${formatTRY(total)}`
                     <DataTable
                       headers={["Tarih", "Müşteri", "Araç", "Plaka", "Toplam"]}
                       rows={vehicleWorkOrderRows.map((item) => [
-                        item.date,
+                        formatDateForDisplay(item.date),
                         item.customer,
                         item.car,
                         item.plate,
@@ -2713,6 +2511,12 @@ Toplam Tutar: ${formatTRY(total)}`
                       ])}
                     />
                   </div>
+                </div>
+
+                <div className="mt-6">
+                  <button onClick={buildVehicleReport} className="w-full rounded-2xl bg-white/10 px-4 py-4 font-medium text-white transition hover:bg-white/15 md:w-auto md:px-6 md:py-3">
+                    Rapor al
+                  </button>
                 </div>
               </SectionCard>
             )}
@@ -2723,12 +2527,10 @@ Toplam Tutar: ${formatTRY(total)}`
                   icon={<FileText className="h-5 w-5" />}
                   title="İş Emri"
                   desc="İş emri oluştur, kaydet, güncelle, PDF al"
-                  right={<FilterBar filter={workOrderFilter} setFilter={setWorkOrderFilter} onReport={buildWorkOrderReport} />}
+                  right={<FilterBar filter={workOrderFilter} setFilter={setWorkOrderFilter} />}
                 >
                   <div className="mb-4 text-xs text-zinc-400">
-                    {isAdmin
-                      ? "Admin: kaydetme, düzenleme, silme açık."
-                      : "Personel: yeni iş emri kaydı açabilir."}
+                    {isAdmin ? "Admin: kaydetme, düzenleme, silme açık." : "Personel: yeni iş emri kaydı açabilir."}
                   </div>
 
                   <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-2xl md:p-6">
@@ -2744,7 +2546,7 @@ Toplam Tutar: ${formatTRY(total)}`
                         <div className="font-bold text-red-600">Müşteri Bilgileri</div>
                         <TextInput value={orderForm.customer} onChange={(value) => setOrderForm({ ...orderForm, customer: value })} placeholder="Müşteri adı" />
                         <TextInput value={orderForm.phone} onChange={(value) => setOrderForm({ ...orderForm, phone: value })} placeholder="Telefon" />
-                        <TextInput value={orderForm.date} onChange={(value) => setOrderForm({ ...orderForm, date: value })} placeholder="Tarih gg.aa.yyyy" />
+                        <TextInput type="date" value={orderForm.date} onChange={(value) => setOrderForm({ ...orderForm, date: value })} placeholder="Tarih" />
                         <TextInput value={orderForm.address} onChange={(value) => setOrderForm({ ...orderForm, address: value })} placeholder="Adres" />
                       </div>
 
@@ -2783,10 +2585,7 @@ Toplam Tutar: ${formatTRY(total)}`
                           <TextInput value={job.item} onChange={(value) => updateOrderJob(job.id, "item", value)} placeholder="İşlem" />
                           <TextInput value={job.qty} onChange={(value) => updateOrderJob(job.id, "qty", value)} placeholder="Adet" />
                           <TextInput value={job.price} onChange={(value) => updateOrderJob(job.id, "price", value)} placeholder="Fiyat" />
-                          <button
-                            onClick={() => removeOrderJob(job.id)}
-                            className="rounded-2xl bg-red-600/10 p-3 text-red-600"
-                          >
+                          <button onClick={() => removeOrderJob(job.id)} className="rounded-2xl bg-red-600/10 p-3 text-red-600">
                             X
                           </button>
                         </div>
@@ -2840,6 +2639,12 @@ Toplam Tutar: ${formatTRY(total)}`
                       </button>
                     </div>
                   </div>
+
+                  <div className="mt-6">
+                    <button onClick={buildWorkOrderReport} className="w-full rounded-2xl bg-white/10 px-4 py-4 font-medium text-white transition hover:bg-white/15 md:w-auto md:px-6 md:py-3">
+                      Rapor al
+                    </button>
+                  </div>
                 </SectionCard>
 
                 <SectionCard
@@ -2865,26 +2670,17 @@ Toplam Tutar: ${formatTRY(total)}`
                   </div>
 
                   <DataTable
-                    headers={["Tarih", "Müşteri", "Araç", "Plaka", "Toplam", "İşlem"]}
+                    headers={["Tarih", "Müşteri", "Araç", "Plaka", "Toplam", "Ekleyen", "İşlem"]}
                     rows={workOrderRows.map((item) => [
-                      item.date,
+                      formatDateForDisplay(item.date),
                       item.customer,
                       item.car,
                       item.plate,
                       formatTRY(item.grandTotal),
+                      item.createdBy,
                       <div key={item.id} className="flex gap-2">
-                        <button
-                          onClick={() => editWorkOrder(item.id)}
-                          className={`rounded-xl p-2 ${isAdmin ? "bg-white/10 text-white" : "bg-zinc-700/30 text-zinc-500"}`}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteWorkOrder(item.id)}
-                          className={`rounded-xl p-2 ${isAdmin ? "bg-red-600/20 text-red-300" : "bg-zinc-700/30 text-zinc-500"}`}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        <button onClick={() => editWorkOrder(item.id)} className={`rounded-xl p-2 ${isAdmin ? "bg-white/10 text-white" : "bg-zinc-700/30 text-zinc-500"}`}><Pencil className="h-4 w-4" /></button>
+                        <button onClick={() => deleteWorkOrder(item.id)} className={`rounded-xl p-2 ${isAdmin ? "bg-red-600/20 text-red-300" : "bg-zinc-700/30 text-zinc-500"}`}><Trash2 className="h-4 w-4" /></button>
                       </div>,
                     ])}
                   />
