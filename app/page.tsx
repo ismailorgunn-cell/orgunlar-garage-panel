@@ -2693,3 +2693,6 @@ Toplam Tutar: ${formatTRY(total)}`
     </div>
   );
 }
+export default function Test() {
+  return <div style={{color:"red", fontSize:40}}>TEST ÇALIŞIYOR</div>;
+}
