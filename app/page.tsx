@@ -602,6 +602,23 @@ function SupplierDebtChart({
 }
 
 export default function Page() {
+if (true) {
+  return (
+    <div style={{
+      position: "fixed",
+      top: 20,
+      right: 20,
+      zIndex: 9999,
+      background: "red",
+      color: "white",
+      padding: "10px 15px",
+      borderRadius: "10px",
+      fontWeight: "bold"
+    }}>
+      YENI SURUM TEST
+    </div>
+  );
+}
   const [data, setData] = useState<AppData>(initialData);
   const [loadingData, setLoadingData] = useState(true);
 
