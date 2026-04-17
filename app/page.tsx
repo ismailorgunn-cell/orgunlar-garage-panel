@@ -133,9 +133,9 @@ type AppData = {
   };
 };
 
-const SESSION_KEY = "orgunlar-panel-session-v2";
-const SETTINGS_KEY = "orgunlar-panel-settings-v2";
-const PANEL_VERSION = "v2026.04.17";
+const SESSION_KEY = "orgunlar-panel-session-v3";
+const SETTINGS_KEY = "orgunlar-panel-settings-v3";
+const PANEL_VERSION = "v2026.04.17.2";
 
 const USERS: Record<UserName, { username: UserName; password: string; role: Role }> = {
   ismail: { username: "ismail", password: "Sma8418r", role: "admin" },
@@ -372,11 +372,11 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-black/55 p-4 shadow-2xl backdrop-blur md:p-6">
+    <div className="rounded-3xl border border-white/10 bg-black/55 p-4 shadow-2xl backdrop-blur transition-all duration-300 hover:border-white/20 md:p-6">
       <div className="mb-5 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:justify-between">
         <div className="flex items-center gap-3">
           {icon ? (
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-red-500/30 bg-red-600/15 text-red-400">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-red-500/30 bg-red-600/15 text-red-400 shadow-[0_0_20px_rgba(239,68,68,0.08)]">
               {icon}
             </div>
           ) : null}
@@ -396,19 +396,28 @@ function StatCard({
   title,
   value,
   icon,
+  tone = "neutral",
 }: {
   title: string;
   value: string;
   icon: React.ReactNode;
+  tone?: "income" | "expense" | "neutral";
 }) {
+  const toneClasses =
+    tone === "income"
+      ? "from-emerald-950/80 via-zinc-950 to-emerald-900/40 border-emerald-500/20"
+      : tone === "expense"
+      ? "from-red-950/80 via-zinc-950 to-red-900/40 border-red-500/20"
+      : "from-zinc-950 via-zinc-900 to-red-950 border-white/10";
+
   return (
-    <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-zinc-950 via-zinc-900 to-red-950 p-5 shadow-2xl">
+    <div className={`rounded-3xl border bg-gradient-to-br p-5 shadow-2xl transition-all duration-300 hover:-translate-y-1 hover:scale-[1.01] ${toneClasses}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-sm text-zinc-400">{title}</div>
           <div className="mt-2 text-2xl font-black text-white">{value}</div>
         </div>
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-white backdrop-blur">
           {icon}
         </div>
       </div>
@@ -442,7 +451,7 @@ function DataTable({
                     <div className="min-w-[95px] text-[11px] font-bold uppercase tracking-wide text-zinc-400">
                       {headers[idx]}
                     </div>
-                    <div className="flex-1 break-words text-right text-sm text-zinc-200">
+                    <div className="flex-1 break-words whitespace-normal text-right text-sm text-zinc-200">
                       {cell}
                     </div>
                   </div>
@@ -460,7 +469,9 @@ function DataTable({
             style={{ gridTemplateColumns: `repeat(${headers.length}, minmax(0, 1fr))` }}
           >
             {headers.map((header, index) => (
-              <div key={header + index}>{header}</div>
+              <div key={header + index} className="truncate pr-2">
+                {header}
+              </div>
             ))}
           </div>
 
@@ -522,11 +533,11 @@ function WeeklyChart({
             <div key={item.label} className="flex flex-col items-center justify-end gap-2">
               <div className="flex h-[220px] items-end gap-2">
                 <div
-                  className="w-5 rounded-t-2xl bg-gradient-to-t from-emerald-600 to-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.35)]"
+                  className="w-5 rounded-t-2xl bg-gradient-to-t from-emerald-600 to-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.35)] transition-all duration-300"
                   style={{ height: item.income > 0 ? incomeHeight : 6 }}
                 />
                 <div
-                  className="w-5 rounded-t-2xl bg-gradient-to-t from-red-700 to-red-300 shadow-[0_0_18px_rgba(239,68,68,0.30)]"
+                  className="w-5 rounded-t-2xl bg-gradient-to-t from-red-700 to-red-300 shadow-[0_0_18px_rgba(239,68,68,0.30)] transition-all duration-300"
                   style={{ height: item.expense > 0 ? expenseHeight : 6 }}
                 />
               </div>
@@ -559,9 +570,9 @@ function SupplierDebtChart({
         ) : (
           rows.map((row) => (
             <div key={row.name} className="space-y-1">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-zinc-200">{row.name}</span>
-                <span className="font-semibold text-white">{formatTRY(row.amount)}</span>
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="truncate text-zinc-200">{row.name}</span>
+                <span className="shrink-0 font-semibold text-white">{formatTRY(row.amount)}</span>
               </div>
               <div className="h-3 overflow-hidden rounded-full bg-white/10">
                 <div
@@ -834,6 +845,8 @@ export default function Page() {
 
   const isAdmin = session?.role === "admin";
   const canAdd = Boolean(session);
+  const canSeeProfit = session?.username === "ismail" || session?.username === "vahit";
+  const canUseWeeklyExports = session?.username === "ismail" || session?.username === "vahit";
 
   const supplierNameById = (id: number | null) =>
     data.suppliers.find((supplier) => supplier.id === id)?.name || "-";
@@ -930,8 +943,7 @@ export default function Page() {
 
   const totalIncomeAll = data.mechanic.reduce((s, x) => s + x.total, 0) + data.expertise.reduce((s, x) => s + x.fee, 0);
   const totalExpenseAll = data.expenses.reduce((s, x) => s + x.amount, 0) + data.employeePayments.reduce((s, x) => s + x.amount, 0);
-  const netAll = totalIncomeAll - totalExpenseAll - totalDebt;
-  const afterRent = netAll - Number(data.settings.baseRent || 0);
+  const totalProfit = totalIncomeAll - totalExpenseAll - totalDebt - Number(data.settings.baseRent || 0);
 
   const weekDays = useMemo(() => {
     const labels = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
@@ -1073,8 +1085,6 @@ export default function Page() {
 
   const ismailWeekNet = weeklyPersonStats.find((x) => x.key === "ismail")?.net || 0;
   const vahitWeekNet = weeklyPersonStats.find((x) => x.key === "vahit")?.net || 0;
-  const topraWeekNet = weeklyPersonStats.find((x) => x.key === "toprak")?.net || 0;
-
   const weeklyNet = weeklyIncome - weeklyExpense;
   const equalShare = weeklyNet / 2;
   const ismailDifference = equalShare - ismailWeekNet;
@@ -1860,6 +1870,8 @@ export default function Page() {
   }
 
   function exportWeeklyPdfProfessional() {
+    if (!canUseWeeklyExports) return;
+
     const doc = createPdfDoc(
       "HAFTALIK DETAYLI RAPOR",
       `${toDDMMYYYY(currentWeekRange.monday)} - ${toDDMMYYYY(currentWeekRange.saturday)}`
@@ -2002,6 +2014,8 @@ export default function Page() {
   }
 
   function exportWeeklyExcel() {
+    if (!canUseWeeklyExports) return;
+
     const wb = XLSX.utils.book_new();
 
     XLSX.utils.book_append_sheet(
@@ -2015,7 +2029,6 @@ export default function Page() {
           HaftalikNet: weeklyNet,
           IsmailNet: ismailWeekNet,
           VahitNet: vahitWeekNet,
-          ToprakNet: topraWeekNet,
           KisiBasiPay: equalShare,
         },
       ]),
@@ -2276,8 +2289,7 @@ export default function Page() {
   }
 
   const orderPartsTotal = orderForm.jobs.reduce((sum, item) => sum + Number(item.price || 0), 0);
-  const orderLaborTotal = Number(orderForm.laborTotal || 0);
-  const orderGrandTotal = orderPartsTotal + orderLaborTotal;
+  const orderGrandTotal = orderPartsTotal + Number(orderForm.laborTotal || 0);
 
   const tabs = [
     { key: "panel", label: "Panel" },
@@ -2357,50 +2369,56 @@ export default function Page() {
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,rgba(180,20,20,0.18),transparent_20%),linear-gradient(135deg,#050505_0%,#111217_45%,#200909_100%)] px-4 py-5 text-white md:px-8">
       <div className="mx-auto w-full max-w-[1800px] space-y-6">
-        <div className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-black/50 p-3 lg:flex-row lg:items-center">
-          <div className="min-w-[240px] pl-2">
-            <div className="text-xl font-black tracking-wide text-white">ORGUNLAR FİNANS PANEL</div>
-            <div className="text-sm text-zinc-400">Haftalık Finans ve Operasyon Takibi</div>
-            <div className="mt-1 text-[11px] text-zinc-500">{PANEL_VERSION}</div>
-          </div>
-
-          <div className="flex min-w-0 flex-1 flex-col gap-3 lg:ml-auto lg:items-end">
-            <div className="flex w-full gap-2 overflow-x-auto pb-2 lg:justify-end">
-              {tabs.map((item) => (
-                <button
-                  key={item.key}
-                  onClick={() => setTab(item.key)}
-                  className={`shrink-0 rounded-xl px-4 py-3 text-sm transition ${
-                    tab === item.key ? "bg-white text-black" : "bg-transparent text-zinc-300 hover:bg-white/5"
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
+        <div className="rounded-2xl border border-white/10 bg-black/50 p-4 shadow-xl backdrop-blur transition-all duration-300 hover:border-white/15">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0">
+              <div className="text-2xl font-black tracking-wide text-white md:text-3xl">ORGUNLAR FİNANS PANEL</div>
+              <div className="mt-1 text-sm text-zinc-400 md:text-base">Haftalık Finans ve Operasyon Takibi</div>
+              <div className="mt-2 text-xs text-zinc-500">{PANEL_VERSION}</div>
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row lg:items-center">
-              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                <div className="text-xs text-zinc-400">Aktif kullanıcı</div>
-                <div className="font-semibold">
-                  {session.username} / {session.role === "admin" ? "Admin" : "Personel"}
+            <div className="w-full xl:w-auto xl:min-w-[360px]">
+              <div className="mb-3 overflow-x-auto pb-2">
+                <div className="flex min-w-max gap-2">
+                  {tabs.map((item) => (
+                    <button
+                      key={item.key}
+                      onClick={() => setTab(item.key)}
+                      className={`shrink-0 rounded-2xl px-4 py-3 text-sm font-medium transition-all duration-300 ${
+                        tab === item.key
+                          ? "bg-white text-black shadow-lg"
+                          : "bg-transparent text-zinc-300 hover:bg-white/5"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              <button
-                onClick={logout}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white transition hover:border-red-500/50"
-              >
-                <LogOut className="h-4 w-4" />
-                Çıkış
-              </button>
+              <div className="grid gap-3">
+                <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                  <div className="text-xs text-zinc-400">Aktif kullanıcı</div>
+                  <div className="font-semibold">
+                    {session.username} / {session.role === "admin" ? "Admin" : "Personel"}
+                  </div>
+                </div>
+
+                <button
+                  onClick={logout}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white transition hover:border-red-500/50"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Çıkış
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
         {tab === "panel" && (
           <>
-            <div className="overflow-hidden rounded-[32px] border border-white/10 bg-gradient-to-r from-black via-zinc-950 to-red-950 shadow-2xl">
+            <div className="overflow-hidden rounded-[32px] border border-white/10 bg-gradient-to-r from-black via-zinc-950 to-red-950 shadow-2xl transition-all duration-300 hover:border-white/15">
               <div className="p-6 md:p-8">
                 <div className="flex flex-col gap-4 md:flex-row md:flex-wrap md:items-center md:justify-between">
                   <div className="max-w-3xl">
@@ -2415,21 +2433,23 @@ export default function Page() {
                     </p>
                   </div>
 
-                  <div className="rounded-3xl border border-white/10 bg-white/5 px-5 py-4">
-                    <div className="text-sm text-zinc-400">Kira sonrası genel durum</div>
-                    <div className="mt-2 text-3xl font-black text-white">{formatTRY(afterRent)}</div>
-                  </div>
+                  {canSeeProfit ? (
+                    <div className="rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/70 via-zinc-950 to-emerald-900/30 px-5 py-4 shadow-xl">
+                      <div className="text-sm text-zinc-400">Genel Kâr / Kasada Kalan</div>
+                      <div className="mt-2 text-3xl font-black text-white">{formatTRY(totalProfit)}</div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              <StatCard title="Günlük Gelir" value={formatTRY(dailyIncome)} icon={<TrendingUp className="h-5 w-5" />} />
-              <StatCard title="Günlük Gider" value={formatTRY(dailyExpense)} icon={<TrendingDown className="h-5 w-5" />} />
-              <StatCard title="Haftalık Gelir" value={formatTRY(weeklyIncome)} icon={<Wallet className="h-5 w-5" />} />
-              <StatCard title="Haftalık Gider" value={formatTRY(weeklyExpense)} icon={<Receipt className="h-5 w-5" />} />
-              <StatCard title="Aylık Gelir" value={formatTRY(monthlyIncome)} icon={<BadgeDollarSign className="h-5 w-5" />} />
-              <StatCard title="Aylık Gider" value={formatTRY(monthlyExpense)} icon={<Receipt className="h-5 w-5" />} />
+              <StatCard title="Günlük Gelir" value={formatTRY(dailyIncome)} icon={<TrendingUp className="h-5 w-5" />} tone="income" />
+              <StatCard title="Günlük Gider" value={formatTRY(dailyExpense)} icon={<TrendingDown className="h-5 w-5" />} tone="expense" />
+              <StatCard title="Haftalık Gelir" value={formatTRY(weeklyIncome)} icon={<Wallet className="h-5 w-5" />} tone="income" />
+              <StatCard title="Haftalık Gider" value={formatTRY(weeklyExpense)} icon={<Receipt className="h-5 w-5" />} tone="expense" />
+              <StatCard title="Aylık Gelir" value={formatTRY(monthlyIncome)} icon={<BadgeDollarSign className="h-5 w-5" />} tone="income" />
+              <StatCard title="Aylık Gider" value={formatTRY(monthlyExpense)} icon={<Receipt className="h-5 w-5" />} tone="expense" />
             </div>
 
             <SectionCard
@@ -2462,11 +2482,11 @@ export default function Page() {
                   <div className="rounded-3xl border border-white/10 bg-black/35 p-4">
                     <div className="text-lg font-bold text-white">Haftalık Özet</div>
                     <div className="mt-4 grid gap-3">
-                      <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                      <div className="rounded-2xl border border-emerald-500/20 bg-gradient-to-br from-emerald-950/70 via-zinc-950 to-emerald-900/20 px-4 py-3">
                         <div className="text-sm text-zinc-400">Haftalık gelir</div>
                         <div className="mt-1 text-2xl font-black text-white">{formatTRY(weeklyIncome)}</div>
                       </div>
-                      <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+                      <div className="rounded-2xl border border-red-500/20 bg-gradient-to-br from-red-950/70 via-zinc-950 to-red-900/20 px-4 py-3">
                         <div className="text-sm text-zinc-400">Haftalık gider</div>
                         <div className="mt-1 text-2xl font-black text-white">{formatTRY(weeklyExpense)}</div>
                       </div>
@@ -2479,18 +2499,33 @@ export default function Page() {
                     <div className="mt-4 space-y-2">
                       <button
                         onClick={exportWeeklyPdfProfessional}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-red-600 px-5 py-4 font-medium text-white transition hover:bg-red-500 md:py-3"
+                        disabled={!canUseWeeklyExports}
+                        className={`inline-flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-4 font-medium text-white transition md:py-3 ${
+                          canUseWeeklyExports
+                            ? "bg-red-600 hover:bg-red-500"
+                            : "cursor-not-allowed bg-zinc-700 text-zinc-400"
+                        }`}
                       >
                         <FileText className="h-4 w-4" />
                         Haftalık hesabı PDF aktar
                       </button>
                       <button
                         onClick={exportWeeklyExcel}
-                        className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-4 font-medium text-white transition hover:bg-emerald-500 md:py-3"
+                        disabled={!canUseWeeklyExports}
+                        className={`inline-flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-4 font-medium text-white transition md:py-3 ${
+                          canUseWeeklyExports
+                            ? "bg-emerald-600 hover:bg-emerald-500"
+                            : "cursor-not-allowed bg-zinc-700 text-zinc-400"
+                        }`}
                       >
                         <FileSpreadsheet className="h-4 w-4" />
-                        Haftayı Excel aktar
+                        Haftalık hesabı Excel aktar
                       </button>
+                      {!canUseWeeklyExports ? (
+                        <div className="text-xs text-zinc-500">
+                          Bu alanı sadece İsmail ve Vahit kullanabilir.
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -2501,50 +2536,32 @@ export default function Page() {
               <SupplierDebtChart rows={supplierDebtRows} maxAmount={maxSupplierDebt} />
 
               <SectionCard
-                icon={<Users className="h-5 w-5" />}
-                title="Kişi Bazlı Haftalık Özet"
-                desc="Toprak toplama dahil, paylaşıma dahil değil"
+                icon={<Wrench className="h-5 w-5" />}
+                title="Bu Haftanın Gelir İşleri"
+                desc="Mekanik ve ekspertizden gelen işler"
               >
-                <div className="grid gap-4 md:grid-cols-3">
-                  {weeklyPersonStats.map((person) => (
-                    <div key={person.key} className="rounded-3xl border border-white/10 bg-white/5 p-4">
-                      <div className="text-lg font-bold text-white">{person.label}</div>
-                      <div className="mt-3 text-sm text-zinc-400">Gelir</div>
-                      <div className="text-xl font-black text-white">{formatTRY(person.income)}</div>
-                      <div className="mt-3 text-sm text-zinc-400">Gider</div>
-                      <div className="text-xl font-black text-white">{formatTRY(person.expense)}</div>
-                      <div className="mt-3 text-sm text-zinc-400">Net</div>
-                      <div className="text-xl font-black text-white">{formatTRY(person.net)}</div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-4 rounded-3xl border border-white/10 bg-white/5 p-4">
-                  <div className="text-lg font-bold text-white">Ortak Dağıtım</div>
-                  <div className="mt-3 grid gap-3 md:grid-cols-2">
-                    <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                      <div className="text-sm text-zinc-400">Kişi başı pay (İsmail + Vahit)</div>
-                      <div className="mt-1 text-2xl font-black text-white">{formatTRY(equalShare)}</div>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                      <div className="text-sm text-zinc-400">Toprak</div>
-                      <div className="mt-1 text-base font-bold text-white">Toplama dahil, pay almaz</div>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                      <div className="text-sm text-zinc-400">İsmail fark</div>
-                      <div className="mt-1 text-xl font-black text-white">
-                        {formatTRY(Math.abs(ismailDifference))}{" "}
-                        {ismailDifference > 0 ? "alacaklı" : ismailDifference < 0 ? "fazla almış" : "eşit"}
+                <div className="space-y-3">
+                  {weeklyIncomeDetailed.length === 0 ? (
+                    <div className="text-sm text-zinc-500">Bu hafta gelir işi yok</div>
+                  ) : (
+                    weeklyIncomeDetailed.map((item, index) => (
+                      <div
+                        key={`${item.type}-${item.date}-${index}`}
+                        className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 transition-all duration-300 hover:border-white/20 hover:bg-white/10"
+                      >
+                        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                          <div className="min-w-0">
+                            <div className="text-xs text-zinc-400">
+                              {item.type} • {item.date} • {item.createdBy}
+                            </div>
+                            <div className="truncate font-semibold text-white">{item.title}</div>
+                            <div className="truncate text-sm text-zinc-400">{item.detail}</div>
+                          </div>
+                          <div className="shrink-0 text-lg font-black text-white">{formatTRY(item.amount)}</div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3">
-                      <div className="text-sm text-zinc-400">Vahit fark</div>
-                      <div className="mt-1 text-xl font-black text-white">
-                        {formatTRY(Math.abs(vahitDifference))}{" "}
-                        {vahitDifference > 0 ? "alacaklı" : vahitDifference < 0 ? "fazla almış" : "eşit"}
-                      </div>
-                    </div>
-                  </div>
+                    ))
+                  )}
                 </div>
               </SectionCard>
             </div>
@@ -2554,7 +2571,7 @@ export default function Page() {
               title="Tüm Verileri Excel'e Aktar"
               desc="İstediğin tarih aralığını seç"
             >
-              <div className="grid gap-3 md:grid-cols-[170px_170px_170px] lg:grid-cols-[170px_170px_220px_150px]">
+              <div className="grid gap-3 lg:grid-cols-[170px_170px_minmax(0,1fr)]">
                 <SmallDateInput value={excelStart} onChange={setExcelStart} />
                 <SmallDateInput value={excelEnd} onChange={setExcelEnd} />
                 <button
@@ -2564,25 +2581,26 @@ export default function Page() {
                   <Download className="h-4 w-4" />
                   Tüm bölümleri Excel aktar
                 </button>
-                <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-                  <div className="text-xs text-zinc-400">Aylık sabit kira</div>
-                  <div className="mt-1 flex gap-2">
+              </div>
+
+              {isAdmin ? (
+                <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="mb-2 text-xs text-zinc-400">Aylık sabit kira</div>
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]">
                     <input
                       value={rentForm}
                       onChange={(e) => setRentForm(e.target.value)}
-                      className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none"
+                      className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-3 text-sm text-white outline-none"
                     />
-                    {isAdmin ? (
-                      <button
-                        onClick={updateRent}
-                        className="rounded-xl bg-red-600 px-3 py-2 text-sm text-white"
-                      >
-                        Kaydet
-                      </button>
-                    ) : null}
+                    <button
+                      onClick={updateRent}
+                      className="rounded-xl bg-red-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-red-500"
+                    >
+                      Kaydet
+                    </button>
                   </div>
                 </div>
-              </div>
+              ) : null}
             </SectionCard>
           </>
         )}
