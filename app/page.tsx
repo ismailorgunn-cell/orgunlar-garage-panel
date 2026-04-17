@@ -601,24 +601,6 @@ function SupplierDebtChart({
   );
 }
 
-export default function Page() {
-if (true) {
-  return (
-    <div style={{
-      position: "fixed",
-      top: 20,
-      right: 20,
-      zIndex: 9999,
-      background: "red",
-      color: "white",
-      padding: "10px 15px",
-      borderRadius: "10px",
-      fontWeight: "bold"
-    }}>
-      YENI SURUM TEST
-    </div>
-  );
-}
   const [data, setData] = useState<AppData>(initialData);
   const [loadingData, setLoadingData] = useState(true);
 
@@ -1298,54 +1280,298 @@ if (true) {
     );
   }
 
-  function exportWeeklyPdf() {
-    const doc = new jsPDF("p", "mm", "a4");
+ function exportWeeklyPdfProfessional() {
+  const doc = new jsPDF("p", "mm", "a4");
 
-    doc.setFillColor(255, 255, 255);
-    doc.rect(0, 0, 210, 297, "F");
+  const pageWidth = 210;
+  const margin = 12;
 
+  const weeklyExpenseItems = [
+    ...data.expenses
+      .filter((x) => isWithinWeek(x.date, currentWeekRange.monday, currentWeekRange.saturday))
+      .map((x) => ({
+        date: formatDateForDisplay(x.date),
+        type: "Gider",
+        title: x.type,
+        detail: x.note || "-",
+        amount: Number(x.amount || 0),
+        createdBy: x.createdBy || "-",
+      })),
+    ...data.employeePayments
+      .filter((x) => isWithinWeek(x.date, currentWeekRange.monday, currentWeekRange.saturday))
+      .map((x) => ({
+        date: formatDateForDisplay(x.date),
+        type: "Eleman",
+        title: x.employeeName,
+        detail: x.note || "-",
+        amount: Number(x.amount || 0),
+        createdBy: x.createdBy || "-",
+      })),
+  ];
+
+  const weeklyIncomeDetailed = [
+    ...data.mechanic
+      .filter((x) => isWithinWeek(x.date, currentWeekRange.monday, currentWeekRange.saturday))
+      .map((x) => ({
+        date: formatDateForDisplay(x.date),
+        type: "Mekanik",
+        title: `${x.car} / ${x.plate || "-"}`,
+        detail: x.service || "-",
+        amount: Number(x.total || 0),
+        createdBy: x.createdBy || "-",
+      })),
+    ...data.expertise
+      .filter((x) => isWithinWeek(x.date, currentWeekRange.monday, currentWeekRange.saturday))
+      .map((x) => ({
+        date: formatDateForDisplay(x.date),
+        type: "Ekspertiz",
+        title: `${x.car} / ${x.plate || "-"}`,
+        detail: x.packageType || "-",
+        amount: Number(x.fee || 0),
+        createdBy: x.createdBy || "-",
+      })),
+  ].sort((a, b) => {
+    const ad = parseDate(a.date)?.getTime() || 0;
+    const bd = parseDate(b.date)?.getTime() || 0;
+    return bd - ad;
+  });
+
+  const people = ["ismail", "vahit", "toprak"];
+
+  const personStats = people.map((person) => {
+    const income = weeklyIncomeDetailed
+      .filter((x) => (x.createdBy || "").toLowerCase() === person)
+      .reduce((sum, x) => sum + x.amount, 0);
+
+    const expense = weeklyExpenseItems
+      .filter((x) => (x.createdBy || "").toLowerCase() === person)
+      .reduce((sum, x) => sum + x.amount, 0);
+
+    return {
+      name: person.charAt(0).toUpperCase() + person.slice(1),
+      income,
+      expense,
+      net: income - expense,
+    };
+  });
+
+  const totalIncome = weeklyIncomeDetailed.reduce((sum, x) => sum + x.amount, 0);
+  const totalExpense = weeklyExpenseItems.reduce((sum, x) => sum + x.amount, 0);
+  const totalNet = totalIncome - totalExpense;
+
+  const equalShare = totalNet / 2;
+
+  const ismailNet = personStats.find((x) => x.name === "Ismail")?.net || 0;
+  const vahitNet = personStats.find((x) => x.name === "Vahit")?.net || 0;
+
+  const ismailDiff = equalShare - ismailNet;
+  const vahitDiff = equalShare - vahitNet;
+
+  // Background
+  doc.setFillColor(245, 245, 245);
+  doc.rect(0, 0, 210, 297, "F");
+
+  // Header
+  doc.setFillColor(12, 12, 14);
+  doc.rect(0, 0, 210, 32, "F");
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.text("ORGUNLAR FINANS PANEL", margin, 14);
+
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(220, 220, 220);
+  doc.text(
+    `${toDDMMYYYY(currentWeekRange.monday)} - ${toDDMMYYYY(currentWeekRange.saturday)}`,
+    margin,
+    22
+  );
+
+  // Title
+  doc.setTextColor(30, 30, 30);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(18);
+  doc.text("HAFTALIK DETAYLI RAPOR", margin, 42);
+
+  // Summary cards
+  const drawCard = (
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    label: string,
+    value: string,
+    tone: "dark" | "red" | "green"
+  ) => {
+    if (tone === "dark") doc.setFillColor(255, 255, 255);
+    if (tone === "red") doc.setFillColor(255, 244, 244);
+    if (tone === "green") doc.setFillColor(244, 255, 247);
+
+    doc.setDrawColor(220, 220, 220);
+    doc.roundedRect(x, y, w, h, 4, 4, "FD");
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(110, 110, 110);
+    doc.text(pdfText(label), x + 4, y + 7);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
     doc.setTextColor(20, 20, 20);
-    doc.setFontSize(22);
-    doc.text("ORGUNLAR FINANS PANEL", 105, 18, { align: "center" });
+    doc.text(pdfText(value), x + 4, y + 16);
+  };
 
-    doc.setTextColor(180, 20, 20);
-    doc.setFontSize(14);
-    doc.text("HAFTALIK RAPOR", 105, 27, { align: "center" });
+  drawCard(12, 50, 58, 22, "Haftalik Gelir", formatTRY(totalIncome), "green");
+  drawCard(76, 50, 58, 22, "Haftalik Gider", formatTRY(totalExpense), "red");
+  drawCard(140, 50, 58, 22, "Haftalik Net", formatTRY(totalNet), "dark");
 
-    doc.setTextColor(20, 20, 20);
-    doc.setFontSize(10);
-    doc.text(
-      `Tarih Araligi: ${toDDMMYYYY(currentWeekRange.monday)} - ${toDDMMYYYY(
-        currentWeekRange.saturday
-      )}`,
-      14,
-      38
-    );
+  // Person summary
+  autoTable(doc, {
+    startY: 80,
+    head: [["Kisi", "Gelir", "Gider", "Net"]],
+    body: personStats.map((p) => [
+      pdfText(p.name),
+      pdfText(formatTRY(p.income)),
+      pdfText(formatTRY(p.expense)),
+      pdfText(formatTRY(p.net)),
+    ]),
+    theme: "grid",
+    styles: {
+      font: "helvetica",
+      fontSize: 9,
+      cellPadding: 3,
+      textColor: [25, 25, 25],
+      lineColor: [225, 225, 225],
+      lineWidth: 0.2,
+    },
+    headStyles: {
+      fillColor: [25, 25, 25],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+    },
+    alternateRowStyles: {
+      fillColor: [250, 250, 250],
+    },
+    margin: { left: 12, right: 12 },
+  });
 
-    doc.roundedRect(14, 45, 182, 28, 3, 3);
-    doc.setFontSize(11);
-    doc.text(`Haftalik Gelir: ${formatTRY(weeklyIncome)}`, 18, 56);
-    doc.text(`Haftalik Gider: ${formatTRY(weeklyExpense)}`, 18, 63);
-    doc.text(`Haftalik Net Kar: ${formatTRY(weeklyIncome - weeklyExpense)}`, 110, 56);
+  // Equal share block
+  const afterPeopleTable = (doc as any).lastAutoTable.finalY + 8;
 
-    doc.setFontSize(12);
-    doc.text("Gelir Getiren Isler", 14, 84);
+  autoTable(doc, {
+    startY: afterPeopleTable,
+    head: [["ORTAK DAGITIM OZETI", "Deger"]],
+    body: [
+      ["Genel Net Kazanc", pdfText(formatTRY(totalNet))],
+      ["Ismail + Vahit Kisi Basi Pay", pdfText(formatTRY(equalShare))],
+      [
+        "Ismail Fark",
+        pdfText(
+          `${formatTRY(Math.abs(ismailDiff))} ${ismailDiff > 0 ? "alacakli" : ismailDiff < 0 ? "fazla almis" : "esit"}`
+        ),
+      ],
+      [
+        "Vahit Fark",
+        pdfText(
+          `${formatTRY(Math.abs(vahitDiff))} ${vahitDiff > 0 ? "alacakli" : vahitDiff < 0 ? "fazla almis" : "esit"}`
+        ),
+      ],
+      ["Toprak", "Kayitlari toplama dahil, paylasima dahil degil"],
+    ],
+    theme: "grid",
+    styles: {
+      font: "helvetica",
+      fontSize: 9,
+      cellPadding: 3,
+      textColor: [25, 25, 25],
+      lineColor: [225, 225, 225],
+      lineWidth: 0.2,
+    },
+    headStyles: {
+      fillColor: [180, 20, 20],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+    },
+    alternateRowStyles: {
+      fillColor: [250, 250, 250],
+    },
+    margin: { left: 12, right: 12 },
+  });
 
-    let y = 92;
-    weeklyIncomeItems.slice(0, 18).forEach((item, index) => {
-      const line = `${index + 1}. ${pdfSafe(item.date)} - ${pdfSafe(item.type)} - ${pdfSafe(
-        item.title
-      )} - ${pdfSafe(item.detail)} - ${formatTRY(item.amount)}`;
-      const lines = doc.splitTextToSize(line, 178);
-      doc.setFontSize(9);
-      doc.text(lines, 16, y);
-      y += lines.length * 5 + 2;
-    });
+  // Income table
+  autoTable(doc, {
+    startY: (doc as any).lastAutoTable.finalY + 10,
+    head: [["#", "Tarih", "Tur", "Detay", "Ekleyen", "Tutar"]],
+    body: weeklyIncomeDetailed.length
+      ? weeklyIncomeDetailed.map((item, index) => [
+          String(index + 1),
+          pdfText(item.date),
+          pdfText(item.type),
+          pdfText(`${item.title} - ${item.detail}`),
+          pdfText(item.createdBy),
+          pdfText(formatTRY(item.amount)),
+        ])
+      : [["-", "-", "-", "Kayit yok", "-", "-"]],
+    theme: "grid",
+    styles: {
+      font: "helvetica",
+      fontSize: 8,
+      cellPadding: 2.4,
+      textColor: [25, 25, 25],
+      lineColor: [225, 225, 225],
+      lineWidth: 0.2,
+    },
+    headStyles: {
+      fillColor: [16, 120, 70],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+    },
+    alternateRowStyles: {
+      fillColor: [248, 252, 248],
+    },
+    margin: { left: 12, right: 12 },
+  });
 
-    doc.save(
-      `haftalik-rapor-${toDDMMYYYY(currentWeekRange.monday)}-${toDDMMYYYY(currentWeekRange.saturday)}.pdf`
-    );
-  }
+  // Expense table
+  autoTable(doc, {
+    startY: (doc as any).lastAutoTable.finalY + 10,
+    head: [["#", "Tarih", "Tur", "Detay", "Ekleyen", "Tutar"]],
+    body: weeklyExpenseItems.length
+      ? weeklyExpenseItems.map((item, index) => [
+          String(index + 1),
+          pdfText(item.date),
+          pdfText(item.type),
+          pdfText(`${item.title} - ${item.detail}`),
+          pdfText(item.createdBy),
+          pdfText(formatTRY(item.amount)),
+        ])
+      : [["-", "-", "-", "Kayit yok", "-", "-"]],
+    theme: "grid",
+    styles: {
+      font: "helvetica",
+      fontSize: 8,
+      cellPadding: 2.4,
+      textColor: [25, 25, 25],
+      lineColor: [225, 225, 225],
+      lineWidth: 0.2,
+    },
+    headStyles: {
+      fillColor: [145, 20, 20],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+    },
+    alternateRowStyles: {
+      fillColor: [252, 248, 248],
+    },
+    margin: { left: 12, right: 12 },
+  });
+
+  doc.save(
+    `haftalik-detayli-rapor-${toDDMMYYYY(currentWeekRange.monday)}-${toDDMMYYYY(currentWeekRange.saturday)}.pdf`
+  );
+}
 
   const handleLogin = () => {
     const user = Object.values(USERS).find(
