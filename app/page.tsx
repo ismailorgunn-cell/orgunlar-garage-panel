@@ -135,7 +135,7 @@ type AppData = {
 
 const SESSION_KEY = "orgunlar-panel-session-v3";
 const SETTINGS_KEY = "orgunlar-panel-settings-v3";
-const PANEL_VERSION = "v2026.04.17.2";
+const PANEL_VERSION = "v2026.04.17.99";
 
 const USERS: Record<UserName, { username: UserName; password: string; role: Role }> = {
   ismail: { username: "ismail", password: "Sma8418r", role: "admin" },
